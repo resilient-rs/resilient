@@ -1,0 +1,3 @@
+// Library logic goes here...
+
+pub fn foo() {}
