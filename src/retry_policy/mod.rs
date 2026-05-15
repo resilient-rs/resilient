@@ -1,3 +1,11 @@
+//! Retry policy module — provides configurable retry logic for async operations.
+//!
+//! Supports:
+//! - Configurable max retry count
+//! - Linear back-off between min_delay and max_delay
+//! - Overall duration cap via max_duration
+//! - Panic catching to prevent unwinding across retries
+
 pub mod errors;
 pub mod retry;
 

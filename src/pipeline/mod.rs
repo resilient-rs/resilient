@@ -1,37 +1,63 @@
+//! Pipeline module — chains multiple resilience policies together.
+//! A Pipeline wraps an operation and applies policies (retry, timeout, etc.)
+//! in a configurable order before the operation is executed.
+
 use std::future::Future;
 
 use crate::policy::Policy;
 use crate::retry_policy::RetryPolicy;
 
-/// Pipeline is the main entry point for running operations with policies.
-/// It orchestrates multiple policies (retry, timeout, etc.) in a configurable order.
+/// The main entry point for running operations with resilience policies.
+/// Currently supports an optional retry policy; more policies will be added.
 pub struct Pipeline {
-    /// The retry policy to use, if any.
-    /// More policies (timeout, circuit breaker, etc.) will be added later.
+    /// Optional retry policy applied before executing the operation.
+    /// `None` means the operation runs without retry logic.
     retry_policy: Option<RetryPolicy>,
 }
 
 impl Pipeline {
-    /// Creates a new empty Pipeline with no policies configured.
-    /// Use `.with_retry()`, `.with_timeout()`, etc. to add policies.
+    /// Creates a new Pipeline with no policies configured.
+    /// Policies are added via builder methods like `.with_retry()`.
     pub fn new() -> Self {
         Pipeline { retry_policy: None }
     }
 }
 
 impl Default for Pipeline {
-    /// Default pipeline has no policies configured.
+    /// Returns a default (empty) pipeline with no policies.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Pipeline {
+    /// Attaches a retry policy to the pipeline.
+    ///
+    /// # Arguments
+    /// * `policy` - The retry configuration to use.
+    ///
+    /// # Returns
+    /// `Self` with the retry policy set, enabling builder-style chaining.
     pub fn with_retry(mut self, policy: RetryPolicy) -> Self {
         self.retry_policy = Some(policy);
         self
     }
 
+    /// Runs the given operation through the configured pipeline.
+    /// If a retry policy is set, it will wrap the call; otherwise the
+    /// operation runs directly.
+    ///
+    /// # Type Parameters
+    /// - `F`: A closure that returns a future resolving to `Result<T, E>`.
+    /// - `Fut`: The future type produced by `F`.
+    /// - `T`: The success type.
+    /// - `E`: The error type.
+    ///
+    /// # Arguments
+    /// * `f` - The operation to run (can be called multiple times if retrying).
+    ///
+    /// # Returns
+    /// `Ok(T)` on success, or `Err(E)` after all retries are exhausted.
     pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
     where
         F: FnMut() -> Fut + Send,

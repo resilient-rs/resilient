@@ -1,14 +1,24 @@
-use std::future::Future;
-// This module provides the async runner implementation.
+//! Simple async runner that executes a closure and awaits its future.
+//! This acts as the base execution layer before any policies are applied.
 
+use std::future::Future;
+
+/// Runs an async closure by calling it and awaiting the returned future.
+///
+/// # Type Parameters
+/// - `F`: A closure that takes no arguments and returns a future.
+/// - `Fut`: The future type produced by `F`.
+/// - `T`: The output type of the future (and therefore the return type).
+///
+/// # Arguments
+/// * `f` - The closure to invoke.
+///
+/// # Returns
+/// The value produced by the future.
 pub async fn run<F, Fut, T>(f: F) -> T
 where
-    // T = the output type of the future
-    // Fut = the future type returned by f
-    // F = the function type that returns Fut
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
 {
-    // Call the function and await the result
     f().await
 }
