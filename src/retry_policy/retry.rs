@@ -1,4 +1,6 @@
-use std::{sync::atomic::AtomicUsize, time};
+use std::{future::Future, sync::atomic::AtomicUsize, time};
+
+use crate::policy::Policy;
 
 // Retry policy is used to define the rules for the retry runner
 // this is the one injected on the async runner for adaptive retry
@@ -38,5 +40,17 @@ impl Default for RetryPolicy {
             max_duration: time::Duration::from_secs(10),
             min_duration: time::Duration::from_secs(3),
         }
+    }
+}
+
+impl<T, E> Policy<T, E> for RetryPolicy {
+    fn call<F, Fut>(&self, f: F) -> impl Future<Output = Result<T, E>> + Send
+    where
+        F: FnOnce() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send,
+    {
+        async move { f().await }
     }
 }
