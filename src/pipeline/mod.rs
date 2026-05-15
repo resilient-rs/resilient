@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use crate::circuit_breaker::BreakerPolicy;
+use crate::circuit_breaker::{BreakerPolicy, CircuitError};
 use crate::policy::Policy;
 use crate::retry_policy::RetryPolicy;
 
@@ -40,8 +40,18 @@ impl Pipeline {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send,
+        E: Send + From<CircuitError>,
     {
+        if let Some(ref cb) = self.circuit_breaker {
+            if !cb.should_allow_request() {
+                return Err(CircuitError::CircuitOpen {
+                    last_failure_time: cb.last_failure_time(),
+                    failure_count: cb.consecutive_failures(),
+                }
+                .into());
+            }
+        }
+
         let result = if let Some(ref retry) = self.retry_policy {
             retry.call(&mut f).await
         } else {

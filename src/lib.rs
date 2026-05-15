@@ -3,7 +3,6 @@
 //! that can be layered via a pipeline.
 
 pub mod circuit_breaker;
-pub mod core;
 pub mod pipeline;
 pub mod policy;
 pub mod retry_policy;

@@ -7,7 +7,7 @@
 //! 4. On panic   → catches it with `AssertUnwindSafe` and either resumes or retries.
 //! 5. Stops when the retry budget or `max_duration` is exhausted.
 
-use std::{future::Future, panic::AssertUnwindSafe, sync::atomic::AtomicUsize, time};
+use std::{future::Future, panic::AssertUnwindSafe, time};
 
 use futures_util::FutureExt;
 
@@ -41,7 +41,7 @@ pub enum RetryMode {
 #[derive(Debug)]
 pub struct RetryPolicy {
     /// Maximum number of times the operation will be attempted.
-    pub max_retries: AtomicUsize,
+    pub max_retries: usize,
 
     /// The jitter / back-off strategy to use.
     pub mode: RetryMode,
@@ -59,7 +59,7 @@ pub struct RetryPolicy {
 impl Default for RetryPolicy {
     fn default() -> Self {
         Self {
-            max_retries: AtomicUsize::new(3),
+            max_retries: 3,
             mode: RetryMode::Linear,
             max_delay: time::Duration::from_secs(6),
             min_delay: time::Duration::from_secs(2),
@@ -126,10 +126,7 @@ impl<T, E> Policy<T, E> for RetryPolicy {
         T: Send,
         E: Send,
     {
-        let max_retries = self
-            .max_retries
-            .load(std::sync::atomic::Ordering::Relaxed)
-            .max(1);
+        let max_retries = self.max_retries.max(1);
         let max_duration = self.max_duration;
 
         async move {

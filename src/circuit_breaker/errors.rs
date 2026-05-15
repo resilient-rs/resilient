@@ -64,3 +64,9 @@ pub enum CircuitError {
         calls_remaining: usize,
     },
 }
+
+impl From<CircuitError> for String {
+    fn from(e: CircuitError) -> Self {
+        e.to_string()
+    }
+}

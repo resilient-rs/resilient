@@ -6,8 +6,6 @@
 //! - Overall duration cap via `max_duration`
 //! - Panic catching to prevent unwinding across retries
 
-pub mod errors;
 pub mod retry;
 
-pub use errors::RetryError;
 pub use retry::{RetryMode, RetryPolicy};
