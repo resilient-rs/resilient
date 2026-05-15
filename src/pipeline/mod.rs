@@ -17,15 +17,15 @@ impl Pipeline {
         self
     }
 
-    pub async fn run<F, Fut, T, E>(&self, f: F) -> Result<T, E>
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
     where
-        F: FnOnce() -> Fut + Send,
+        F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
         E: Send,
     {
         if let Some(ref policy) = self.retry_policy {
-            policy.call(f).await
+            policy.call(&mut f).await
         } else {
             f().await
         }

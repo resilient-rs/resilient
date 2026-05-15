@@ -1,4 +1,6 @@
-use std::{future::Future, sync::atomic::AtomicUsize, time};
+use std::{future::Future, panic::AssertUnwindSafe, sync::atomic::AtomicUsize, time};
+
+use futures_util::FutureExt;
 
 use crate::policy::Policy;
 
@@ -44,13 +46,57 @@ impl Default for RetryPolicy {
 }
 
 impl<T, E> Policy<T, E> for RetryPolicy {
-    fn call<F, Fut>(&self, f: F) -> impl Future<Output = Result<T, E>> + Send
+    fn call<F, Fut>(&self, f: &mut F) -> impl Future<Output = Result<T, E>> + Send
     where
-        F: FnOnce() -> Fut + Send,
+        F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
         E: Send,
     {
-        async move { f().await }
+        let max_retries = self
+            .max_retries
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .max(1);
+        let min_delay = self.min_delay;
+        let max_delay = self.max_delay;
+        let max_duration = self.max_duration;
+
+        async move {
+            let start = std::time::Instant::now();
+
+            for attempt in 0..max_retries {
+                let result = AssertUnwindSafe(f()).catch_unwind().await;
+
+                match result {
+                    Ok(Ok(val)) => return Ok(val),
+                    Ok(Err(e)) => {
+                        if attempt + 1 >= max_retries || start.elapsed() >= max_duration {
+                            return Err(e);
+                        }
+                    }
+                    Err(panic) => {
+                        if attempt + 1 >= max_retries || start.elapsed() >= max_duration {
+                            std::panic::resume_unwind(panic);
+                        }
+                    }
+                }
+
+                let delay = if max_retries > 1 {
+                    let t = attempt as f64 / (max_retries - 1) as f64;
+                    let secs = min_delay.as_secs_f64()
+                        + (max_delay.as_secs_f64() - min_delay.as_secs_f64()) * t;
+                    std::time::Duration::from_secs_f64(secs)
+                } else {
+                    min_delay
+                };
+
+                let remaining = max_duration.saturating_sub(start.elapsed());
+                let delay = delay.min(remaining);
+
+                tokio::time::sleep(delay).await;
+            }
+
+            f().await
+        }
     }
 }
