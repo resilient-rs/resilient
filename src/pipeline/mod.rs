@@ -3,10 +3,12 @@ use std::future::Future;
 use crate::circuit_breaker::{BreakerPolicy, CircuitError};
 use crate::policy::Policy;
 use crate::retry_policy::RetryPolicy;
+use crate::timeout::{TimeoutError, TimeoutPolicy};
 
 pub struct Pipeline {
     retry_policy: Option<RetryPolicy>,
     circuit_breaker: Option<BreakerPolicy>,
+    timeout: Option<TimeoutPolicy>,
 }
 
 impl Pipeline {
@@ -14,6 +16,7 @@ impl Pipeline {
         Pipeline {
             retry_policy: None,
             circuit_breaker: None,
+            timeout: None,
         }
     }
 }
@@ -35,12 +38,17 @@ impl Pipeline {
         self
     }
 
+    pub fn with_timeout(mut self, policy: TimeoutPolicy) -> Self {
+        self.timeout = Some(policy);
+        self
+    }
+
     pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
     where
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<CircuitError>,
+        E: Send + From<CircuitError> + From<TimeoutError>,
     {
         if let Some(ref cb) = self.circuit_breaker
             && !cb.should_allow_request()
@@ -52,10 +60,47 @@ impl Pipeline {
             .into());
         }
 
-        let result = if let Some(ref retry) = self.retry_policy {
-            retry.call(&mut f).await
-        } else {
-            f().await
+        let result = match (self.retry_policy.as_ref(), self.timeout.as_ref()) {
+            (Some(retry), Some(timeout)) => {
+                let duration = timeout.duration;
+                let name = &timeout.name;
+                let on_success = &timeout.on_success;
+                let on_failure = &timeout.on_failure;
+                let on_timeout = &timeout.on_timeout;
+                let mut timed = || {
+                    let fut = f();
+                    async move {
+                        match tokio::time::timeout(duration, fut).await {
+                            Ok(Ok(val)) => {
+                                if let Some(cb) = on_success {
+                                    cb().await;
+                                }
+                                Ok(val)
+                            }
+                            Ok(Err(e)) => {
+                                if let Some(cb) = on_failure {
+                                    cb().await;
+                                }
+                                Err(e)
+                            }
+                            Err(_elapsed) => {
+                                if let Some(cb) = on_timeout {
+                                    cb().await;
+                                }
+                                Err(TimeoutError::Elapsed {
+                                    duration,
+                                    name: name.clone(),
+                                }
+                                .into())
+                            }
+                        }
+                    }
+                };
+                retry.call(&mut timed).await
+            }
+            (Some(retry), None) => retry.call(&mut f).await,
+            (None, Some(timeout)) => timeout.call(&mut f).await,
+            (None, None) => f().await,
         };
 
         if let Some(ref cb) = self.circuit_breaker {

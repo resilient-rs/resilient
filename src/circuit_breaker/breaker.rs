@@ -47,7 +47,10 @@
 use std::{
     collections::VecDeque,
     future::Future,
-    sync::{atomic::{AtomicU64, AtomicU8, Ordering}, Arc},
+    sync::{
+        Arc,
+        atomic::{AtomicU8, AtomicU64, Ordering},
+    },
     time,
 };
 
@@ -244,7 +247,6 @@ pub struct BreakerPolicy {
     pub max_open_timeout: time::Duration,
 
     // ── Internal heap-allocated state (shared across clones) ───────────────
-
     /// The current circuit breaker state stored as a `u8` for atomic access.
     state: Arc<AtomicU8>,
     /// Total number of failures recorded (across all states).
