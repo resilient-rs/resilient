@@ -42,14 +42,14 @@ impl Pipeline {
         T: Send,
         E: Send + From<CircuitError>,
     {
-        if let Some(ref cb) = self.circuit_breaker {
-            if !cb.should_allow_request() {
-                return Err(CircuitError::CircuitOpen {
-                    last_failure_time: cb.last_failure_time(),
-                    failure_count: cb.consecutive_failures(),
-                }
-                .into());
+        if let Some(ref cb) = self.circuit_breaker
+            && !cb.should_allow_request()
+        {
+            return Err(CircuitError::CircuitOpen {
+                last_failure_time: cb.last_failure_time(),
+                failure_count: cb.consecutive_failures(),
             }
+            .into());
         }
 
         let result = if let Some(ref retry) = self.retry_policy {
