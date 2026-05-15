@@ -7,3 +7,4 @@ edition = "2024"
 thiserror = "2.0.18"
 tokio = { version = "1", features = ["time"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+fastrand = "2"

@@ -2,12 +2,12 @@
 //!
 //! Supports:
 //! - Configurable max retry count
-//! - Linear back-off between min_delay and max_delay
-//! - Overall duration cap via max_duration
+//! - Multiple jitter strategies via [`RetryMode`](retry::RetryMode)
+//! - Overall duration cap via `max_duration`
 //! - Panic catching to prevent unwinding across retries
 
 pub mod errors;
 pub mod retry;
 
 pub use errors::RetryError;
-pub use retry::RetryPolicy;
+pub use retry::{RetryMode, RetryPolicy};
