@@ -87,7 +87,11 @@ impl RetryPolicy {
     }
 
     /// Applies the configured jitter strategy to produce the actual delay.
-    fn jittered_delay(&self, base: time::Duration, last_delay: &mut time::Duration) -> time::Duration {
+    fn jittered_delay(
+        &self,
+        base: time::Duration,
+        last_delay: &mut time::Duration,
+    ) -> time::Duration {
         match self.mode {
             RetryMode::Linear => base,
 
