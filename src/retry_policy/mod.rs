@@ -1,5 +1,5 @@
 pub mod errors;
 pub mod retry;
 
-pub use retry::RetryPolicy;
 pub use errors::RetryError;
+pub use retry::RetryPolicy;
