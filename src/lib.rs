@@ -6,3 +6,4 @@ pub mod circuit_breaker;
 pub mod pipeline;
 pub mod policy;
 pub mod retry_policy;
+pub mod timeout;
