@@ -75,6 +75,30 @@ impl RetryPolicy {
         self
     }
 
+    /// Sets the maximum number of retry attempts.
+    pub fn with_max_retries(mut self, max: usize) -> Self {
+        self.max_retries = max;
+        self
+    }
+
+    /// Sets the minimum delay between retries (floor for back-off).
+    pub fn with_min_delay(mut self, delay: time::Duration) -> Self {
+        self.min_delay = delay;
+        self
+    }
+
+    /// Sets the cap on any single delay between retries.
+    pub fn with_max_delay(mut self, delay: time::Duration) -> Self {
+        self.max_delay = delay;
+        self
+    }
+
+    /// Sets the hard cap on total elapsed time across all retry attempts.
+    pub fn with_max_duration(mut self, duration: time::Duration) -> Self {
+        self.max_duration = duration;
+        self
+    }
+
     /// Linear interpolation between `min_delay` and `max_delay` for the given attempt.
     fn base_delay(&self, attempt: usize, max_retries: usize) -> time::Duration {
         if max_retries <= 1 {

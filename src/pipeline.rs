@@ -16,7 +16,16 @@
 //! 4. **Circuit Breaker Feedback** — after the operation completes (or fails),
 //!    the result is fed back to the circuit breaker so it can update its state.
 //!
-//! # Example
+//! # Fallback
+//!
+//! [`Pipeline::or_else`] attaches a fallback closure that runs when the
+//! pipeline produces any error. The fallback executes **raw** — it does not
+//! re-apply the pipeline's policies. This is useful for cached responses,
+//! default values, or alternative code paths.
+//!
+//! # Examples
+//!
+//! Basic pipeline:
 //!
 //! ```ignore
 //! use resilient::pipeline::Pipeline;
@@ -34,8 +43,24 @@
 //!
 //! let result = pipeline.run(&mut || async { Ok::<_, String>("done") }).await;
 //! ```
+//!
+//! Pipeline with a fallback:
+//!
+//! ```ignore
+//! use resilient::pipeline::Pipeline;
+//! use resilient::retry_policy::RetryPolicy;
+//!
+//! let pipeline = Pipeline::default()
+//!     .with_retry(RetryPolicy::default().with_max_retries(3));
+//!
+//! let result = pipeline
+//!     .or_else(|| async { Ok::<_, String>("cached response") })
+//!     .run(&mut || async { Err::<String, _>("service unavailable") })
+//!     .await;
+//! ```
 
 use std::future::Future;
+use std::marker::PhantomData;
 
 use crate::circuit_breaker::{BreakerPolicy, CircuitError};
 use crate::policy::Policy;
@@ -134,6 +159,30 @@ impl Pipeline {
     pub fn with_rate_limiter(mut self, policy: RateLimiter) -> Self {
         self.rate_limiter = Some(policy);
         self
+    }
+
+    /// Wraps this pipeline with a fallback operation.
+    ///
+    /// When the pipeline's [`run`](Pipeline::run) returns any error, the
+    /// provided fallback closure is called instead. The fallback runs **raw**
+    /// — it does not re-apply any of the pipeline's resilience policies.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let result = Pipeline::default()
+    ///     .or_else(|| async { Ok::<_, String>("fallback") })
+    ///     .run(&mut || async { Err::<String, _>("error") })
+    ///     .await;
+    ///
+    /// assert_eq!(result.unwrap(), "fallback");
+    /// ```
+    pub fn or_else<F, Fut, T, E>(self, fallback: F) -> FallbackPipeline<F, Fut, T, E> {
+        FallbackPipeline {
+            primary: self,
+            fallback,
+            _marker: PhantomData,
+        }
     }
 
     /// Runs the provided async operation through the configured resilience pipeline.
@@ -246,5 +295,58 @@ impl Pipeline {
         }
 
         result
+    }
+}
+
+/// A pipeline paired with a fallback operation.
+///
+/// When the primary pipeline returns any error, the fallback closure is
+/// invoked directly, bypassing all resilience policies. This is useful for
+/// providing default values, cached responses, or alternative code paths.
+///
+/// Constructed via [`Pipeline::or_else`].
+pub struct FallbackPipeline<F, Fut, T, E> {
+    primary: Pipeline,
+    fallback: F,
+    _marker: PhantomData<(Fut, T, E)>,
+}
+
+impl<F, Fut, T, E> FallbackPipeline<F, Fut, T, E>
+where
+    F: Fn() -> Fut + Send + Sync,
+    Fut: Future<Output = Result<T, E>> + Send,
+    T: Send,
+    E: Send,
+{
+    /// Runs the primary pipeline and falls back on error.
+    ///
+    /// The primary operation runs through all configured pipeline policies
+    /// (rate limiter, circuit breaker, retry, timeout). If any of those
+    /// produce an error, the fallback closure is invoked instead of
+    /// propagating the error.
+    ///
+    /// The fallback runs **raw** — it does not re-apply any resilience
+    /// policies.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `G` — The primary operation callable. Must be `FnMut` so retry can
+    ///   call it multiple times.
+    /// * `GFut` — The future returned by the primary operation.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(T)` — the primary operation succeeded, or the fallback succeeded.
+    /// * `Err(E)` — both the primary operation and the fallback failed.
+    pub async fn run<G, GFut>(&self, op: &mut G) -> Result<T, E>
+    where
+        G: FnMut() -> GFut + Send,
+        GFut: Future<Output = Result<T, E>> + Send,
+        E: From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
+    {
+        match self.primary.run(op).await {
+            Ok(val) => Ok(val),
+            Err(_) => (self.fallback)().await,
+        }
     }
 }
