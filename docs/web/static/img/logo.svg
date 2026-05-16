@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" fill="none">
+  <rect width="200" height="200" rx="30" fill="#2563eb"/>
+  <text x="100" y="115" text-anchor="middle" fill="white" font-family="system-ui, sans-serif" font-weight="bold" font-size="64">R</text>
+  <path d="M40 160 L160 160 L160 170 L40 170 Z" fill="#93c5fd" opacity="0.6"/>
+  <path d="M60 150 L140 150 L140 160 L60 160 Z" fill="#93c5fd" opacity="0.4"/>
+  <path d="M80 140 L120 140 L120 150 L80 150 Z" fill="#93c5fd" opacity="0.2"/>
+</svg>
