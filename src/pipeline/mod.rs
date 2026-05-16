@@ -2,6 +2,7 @@ use std::future::Future;
 
 use crate::circuit_breaker::{BreakerPolicy, CircuitError};
 use crate::policy::Policy;
+use crate::rate_limit::{RateLimitError, RateLimiter};
 use crate::retry_policy::RetryPolicy;
 use crate::timeout::{TimeoutError, TimeoutPolicy};
 
@@ -9,6 +10,7 @@ pub struct Pipeline {
     retry_policy: Option<RetryPolicy>,
     circuit_breaker: Option<BreakerPolicy>,
     timeout: Option<TimeoutPolicy>,
+    rate_limiter: Option<RateLimiter>,
 }
 
 impl Pipeline {
@@ -17,6 +19,7 @@ impl Pipeline {
             retry_policy: None,
             circuit_breaker: None,
             timeout: None,
+            rate_limiter: None,
         }
     }
 }
@@ -43,13 +46,24 @@ impl Pipeline {
         self
     }
 
+    pub fn with_rate_limiter(mut self, policy: RateLimiter) -> Self {
+        self.rate_limiter = Some(policy);
+        self
+    }
+
     pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
     where
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<CircuitError> + From<TimeoutError>,
+        E: Send + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
     {
+        if let Some(ref rl) = self.rate_limiter
+            && !rl.try_consume(1)
+        {
+            return Err(RateLimitError::RateLimited.into());
+        }
+
         if let Some(ref cb) = self.circuit_breaker
             && !cb.should_allow_request()
         {
