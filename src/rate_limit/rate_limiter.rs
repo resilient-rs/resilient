@@ -115,10 +115,7 @@ impl RateLimiter {
     /// 3. Otherwise returns `false` (the bucket state is still updated with
     ///    any refilled tokens so the caller can inspect the new level).
     pub fn try_consume(&self, tokens: usize) -> bool {
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         let elapsed = now
             .checked_duration_since(inner.last_refill)

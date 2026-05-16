@@ -48,8 +48,8 @@ use std::{
     collections::VecDeque,
     future::Future,
     sync::{
+        atomic::{AtomicU64, AtomicU8, Ordering},
         Arc,
-        atomic::{AtomicU8, AtomicU64, Ordering},
     },
     time,
 };
@@ -387,7 +387,10 @@ impl BreakerPolicy {
 
     /// Returns the timestamp of the most recent failure, if any.
     pub fn last_failure_time(&self) -> Option<time::Instant> {
-        *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner())
+        *self
+            .last_failure_time
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     // ── Timeout calculation ───────────────────────────────────────────────
@@ -425,8 +428,10 @@ impl BreakerPolicy {
         if current == STATE_CLOSED || current == STATE_HALF_OPEN {
             self.state.store(STATE_OPEN, Ordering::SeqCst);
             self.open_transition_count.fetch_add(1, Ordering::SeqCst);
-            *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some(time::Instant::now());
+            *self
+                .last_failure_time
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(time::Instant::now());
         }
     }
 
@@ -464,8 +469,14 @@ impl BreakerPolicy {
         self.consecutive_successes.store(0, Ordering::SeqCst);
         self.open_transition_count.store(0, Ordering::SeqCst);
         self.half_open_calls_made.store(0, Ordering::SeqCst);
-        *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        self.window_calls.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        *self
+            .last_failure_time
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        self.window_calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Manually forces the circuit into the Open state. All requests will
@@ -617,7 +628,11 @@ impl BreakerPolicy {
         match state {
             STATE_CLOSED => true,
             STATE_OPEN => {
-                if let Some(last_failure) = *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner()) {
+                if let Some(last_failure) = *self
+                    .last_failure_time
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                {
                     let timeout = self.calculate_open_timeout();
                     if last_failure.elapsed() >= timeout {
                         self.try_transition_to_half_open();
