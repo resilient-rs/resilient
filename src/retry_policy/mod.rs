@@ -2,7 +2,7 @@
 //!
 //! Supports:
 //! - Configurable max retry count
-//! - Multiple jitter strategies via [`RetryMode`](retry::RetryMode)
+//! - Multiple jitter strategies via [`RetryMode`]
 //! - Overall duration cap via `max_duration`
 //! - Panic catching to prevent unwinding across retries
 

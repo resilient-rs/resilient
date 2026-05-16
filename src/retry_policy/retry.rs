@@ -7,6 +7,8 @@
 //! 4. On panic   → catches it with `AssertUnwindSafe` and either resumes or retries.
 //! 5. Stops when the retry budget or `max_duration` is exhausted.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{future::Future, panic::AssertUnwindSafe, time};
 
 use futures_util::FutureExt;
@@ -54,6 +56,10 @@ pub struct RetryPolicy {
 
     /// Hard cap on the total elapsed time for all retry attempts combined.
     pub max_duration: time::Duration,
+
+    /// Internal flag set by the pipeline's timed closure when a timeout occurs.
+    /// When set, the current attempt's error will not be retried.
+    pub(crate) timeout_occurred: Option<Arc<AtomicBool>>,
 }
 
 impl Default for RetryPolicy {
@@ -64,6 +70,7 @@ impl Default for RetryPolicy {
             max_delay: time::Duration::from_secs(6),
             min_delay: time::Duration::from_secs(2),
             max_duration: time::Duration::from_secs(10),
+            timeout_occurred: None,
         }
     }
 }
@@ -165,7 +172,10 @@ impl<T, E> Policy<T, E> for RetryPolicy {
                 match result {
                     Ok(Ok(val)) => return Ok(val),
                     Ok(Err(e)) => {
-                        if attempt >= max_retries || start.elapsed() >= max_duration {
+                        let timed_out = self.timeout_occurred.as_ref()
+                            .map(|f| f.load(Ordering::Relaxed))
+                            .unwrap_or(false);
+                        if attempt >= max_retries || start.elapsed() >= max_duration || timed_out {
                             return Err(e);
                         }
                     }

@@ -11,8 +11,9 @@
 //! 1. **Rate Limiting** — checks the token bucket before anything else.
 //! 2. **Circuit Breaker** — checks whether the circuit is open.
 //! 3. **Retry & Timeout** — the operation itself, optionally wrapped in retry
-//!    and/or timeout logic. When both are present, timeout wraps each retry
-//!    attempt individually.
+//!    and/or timeout logic. When both are present, each retry attempt has its
+//!    own timeout. Timeout errors are **not** retried — they propagate
+//!    immediately to the caller.
 //! 4. **Circuit Breaker Feedback** — after the operation completes (or fails),
 //!    the result is fed back to the circuit breaker so it can update its state.
 //!
@@ -59,6 +60,9 @@
 //!     .await;
 //! ```
 
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::future::Future;
 use std::marker::PhantomData;
 
@@ -133,7 +137,7 @@ impl Pipeline {
     ///
     /// When set, the circuit breaker monitors operation outcomes. If failures
     /// exceed the configured threshold, the circuit opens and subsequent calls
-    /// are rejected immediately. See [`BreakerPolicy`](crate::circuit_breaker::BreakerPolicy)
+    /// are rejected immediately. See [`BreakerPolicy`]
     /// for details on the state machine.
     pub fn with_circuit_breaker(mut self, policy: BreakerPolicy) -> Self {
         self.circuit_breaker = Some(policy);
@@ -196,7 +200,8 @@ impl Pipeline {
     /// 3. **Operation execution** — the closure `f` is invoked. Depending on
     ///    the configured policies:
     ///    - If both retry and timeout are set, each retry attempt has its own
-    ///      timeout.
+    ///      per-attempt timeout. Timeout errors are **not** retried — they
+    ///      propagate immediately.
     ///    - If only timeout is set, the operation is wrapped in a single
     ///      deadline.
     ///    - If only retry is set, the operation is retried on failure.
@@ -228,12 +233,6 @@ impl Pipeline {
         T: Send,
         E: Send + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
     {
-        if let Some(ref rl) = self.rate_limiter {
-            if !rl.try_consume(1) {
-                return Err(RateLimitError::RateLimited.into());
-            }
-        }
-
         if let Some(ref cb) = self.circuit_breaker {
             if !cb.should_allow_request() {
                 return Err(CircuitError::CircuitOpen {
@@ -246,14 +245,29 @@ impl Pipeline {
 
         let result = match (self.retry_policy.as_ref(), self.timeout.as_ref()) {
             (Some(retry), Some(timeout)) => {
+                let timeout_flag = Arc::new(AtomicBool::new(false));
+                let mut retry = retry.clone();
+                retry.timeout_occurred = Some(timeout_flag.clone());
+
                 let duration = timeout.duration;
                 let name = &timeout.name;
                 let on_success = &timeout.on_success;
                 let on_failure = &timeout.on_failure;
                 let on_timeout = &timeout.on_timeout;
+
                 let mut timed = || {
+                    if let Some(ref rl) = self.rate_limiter {
+                        if !rl.try_consume(1) {
+                            return Box::pin(async {
+                                Err(RateLimitError::RateLimited.into())
+                            })
+                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                        }
+                    }
+                    timeout_flag.store(false, Ordering::Relaxed);
                     let fut = f();
-                    async move {
+                    let flag = timeout_flag.clone();
+                    Box::pin(async move {
                         match tokio::time::timeout(duration, fut).await {
                             Ok(Ok(val)) => {
                                 if let Some(cb) = on_success {
@@ -271,6 +285,7 @@ impl Pipeline {
                                 if let Some(cb) = on_timeout {
                                     cb().await;
                                 }
+                                flag.store(true, Ordering::Relaxed);
                                 Err(TimeoutError::Elapsed {
                                     duration,
                                     name: name.clone(),
@@ -278,13 +293,50 @@ impl Pipeline {
                                 .into())
                             }
                         }
-                    }
+                    })
+                        as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
                 };
                 retry.call(&mut timed).await
             }
-            (Some(retry), None) => retry.call(&mut f).await,
-            (None, Some(timeout)) => timeout.call(&mut f).await,
-            (None, None) => f().await,
+            (Some(retry), None) => {
+                let mut g = || {
+                    if let Some(ref rl) = self.rate_limiter {
+                        if !rl.try_consume(1) {
+                            return Box::pin(async {
+                                Err(RateLimitError::RateLimited.into())
+                            })
+                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                        }
+                    }
+                    Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
+                };
+                retry.call(&mut g).await
+            }
+            (None, Some(timeout)) => {
+                let mut g = || {
+                    if let Some(ref rl) = self.rate_limiter {
+                        if !rl.try_consume(1) {
+                            return Box::pin(async {
+                                Err(RateLimitError::RateLimited.into())
+                            })
+                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                        }
+                    }
+                    Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
+                };
+                timeout.call(&mut g).await
+            }
+            (None, None) => {
+                if let Some(ref rl) = self.rate_limiter {
+                    if !rl.try_consume(1) {
+                        Err(RateLimitError::RateLimited.into())
+                    } else {
+                        f().await
+                    }
+                } else {
+                    f().await
+                }
+            }
         };
 
         if let Some(ref cb) = self.circuit_breaker {
