@@ -38,7 +38,7 @@ pub enum RetryMode {
 /// Delays between attempts are computed according to [`RetryMode`].
 /// The entire retry sequence is bounded by `max_duration`.
 /// Panics during execution are caught so they don't skip remaining retries.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RetryPolicy {
     /// Maximum number of times the operation will be attempted.
     pub max_retries: usize,

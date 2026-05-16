@@ -6,6 +6,7 @@ use crate::rate_limit::{RateLimitError, RateLimiter};
 use crate::retry_policy::RetryPolicy;
 use crate::timeout::{TimeoutError, TimeoutPolicy};
 
+#[derive(Clone)]
 pub struct Pipeline {
     retry_policy: Option<RetryPolicy>,
     circuit_breaker: Option<BreakerPolicy>,

@@ -214,7 +214,7 @@ impl From<BreakerState> for u8 {
 ///     eprintln!("Circuit is open!");
 /// }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BreakerPolicy {
     /// Number of consecutive failures that triggers the Open state.
     pub failure_threshold: usize,
