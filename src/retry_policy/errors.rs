@@ -1,10 +1,7 @@
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub enum RetryError {
-    #[error("Max retries of {max_retries} has been exceeded")]
-    MaxRetriesExceeded {
-        max_retries: usize,
-        last_error: Box<RetryError>,
-    },
+#[derive(Error, Debug)]
+pub enum RetryError<E> {
+    #[error("Max attempts ({max_attempts}) exceeded")]
+    MaxRetriesExceeded { max_attempts: u32, source: E },
 }

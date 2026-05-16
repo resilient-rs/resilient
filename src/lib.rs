@@ -1,27 +1,29 @@
-use std::time::Duration;
+//! Composable async resilience utilities for Rust.
+//!
+//! # Retry
+//!
+//! ```
+//! use std::time::Duration;
+//!
+//! use resilient::{retry, RetryPolicy};
+//!
+//! # async fn example() -> Result<(), resilient::RetryError<&'static str>> {
+//! let policy = RetryPolicy::exponential(3)
+//!     .base_delay(Duration::from_millis(50))
+//!     .build();
+//!
+//! let value = retry(&policy, || async {
+//!     // call your fallible async operation here
+//!     Ok::<_, &str>(())
+//! })
+//! .await?;
+//! # let _ = value;
+//! # Ok(())
+//! # }
+//! ```
 
-pub struct Fixed;
+pub mod retry_policy;
 
-pub struct Exponential;
-
-pub struct Linear;
-
-pub struct RetryBuilder<S> {
-    pub max_attempts: u32,
-    pub base_delay: Duration,
-    pub max_delay: Duration,
-    pub jitter: Option<f64>,
-    _strategy: std::marker::PhantomData<S>,
-}
-
-impl RetryBuilder<Exponential> {
-    pub fn exponential(max_attempts: u32) -> RetryBuilder<Exponential> {
-        RetryBuilder {
-            max_attempts,
-            base_delay: Duration::from_millis(100),
-            max_delay: Duration::from_secs(30),
-            jitter: None,
-            _strategy: std::marker::PhantomData,
-        }
-    }
-}
+pub use retry_policy::{
+    BackoffStrategy, Exponential, Fixed, Linear, RetryBuilder, RetryError, RetryPolicy, retry,
+};
