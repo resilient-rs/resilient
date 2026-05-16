@@ -1,10 +1,10 @@
 [package]
 name = "resilient"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 thiserror = "2.0.18"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 fastrand = "2"

@@ -179,20 +179,20 @@ impl Pipeline {
         T: Send,
         E: Send + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
     {
-        if let Some(ref rl) = self.rate_limiter
-            && !rl.try_consume(1)
-        {
-            return Err(RateLimitError::RateLimited.into());
+        if let Some(ref rl) = self.rate_limiter {
+            if !rl.try_consume(1) {
+                return Err(RateLimitError::RateLimited.into());
+            }
         }
 
-        if let Some(ref cb) = self.circuit_breaker
-            && !cb.should_allow_request()
-        {
-            return Err(CircuitError::CircuitOpen {
-                last_failure_time: cb.last_failure_time(),
-                failure_count: cb.consecutive_failures(),
+        if let Some(ref cb) = self.circuit_breaker {
+            if !cb.should_allow_request() {
+                return Err(CircuitError::CircuitOpen {
+                    last_failure_time: cb.last_failure_time(),
+                    failure_count: cb.consecutive_failures(),
+                }
+                .into());
             }
-            .into());
         }
 
         let result = match (self.retry_policy.as_ref(), self.timeout.as_ref()) {
