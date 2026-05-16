@@ -387,7 +387,7 @@ impl BreakerPolicy {
 
     /// Returns the timestamp of the most recent failure, if any.
     pub fn last_failure_time(&self) -> Option<time::Instant> {
-        *self.last_failure_time.lock().unwrap()
+        *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     // ── Timeout calculation ───────────────────────────────────────────────
@@ -417,14 +417,16 @@ impl BreakerPolicy {
     // ── State transitions ─────────────────────────────────────────────────
 
     /// Attempts to transition from Closed or HalfOpen to Open.
-    /// Only transitions if the current state is not already HalfOpen
-    /// (HalfOpen→Open is handled by `record_failure`).
-    /// Increments the open transition counter for adaptive back-off.
+    /// Only transitions if the current state is Closed or HalfOpen.
+    /// Records the failure timestamp and increments the open transition
+    /// counter for adaptive back-off.
     fn try_transition_to_open(&self) {
         let current = self.state.load(Ordering::SeqCst);
-        if current != STATE_HALF_OPEN {
+        if current == STATE_CLOSED || current == STATE_HALF_OPEN {
             self.state.store(STATE_OPEN, Ordering::SeqCst);
             self.open_transition_count.fetch_add(1, Ordering::SeqCst);
+            *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(time::Instant::now());
         }
     }
 
@@ -443,9 +445,11 @@ impl BreakerPolicy {
     /// Transitions from HalfOpen to Closed. Resets the consecutive-failure
     /// and total-failure counters since the circuit is now healthy.
     fn try_transition_to_closed(&self) {
-        self.state.store(STATE_CLOSED, Ordering::SeqCst);
-        self.consecutive_failures.store(0, Ordering::SeqCst);
-        self.failure_count.store(0, Ordering::SeqCst);
+        let prev = self.state.swap(STATE_CLOSED, Ordering::SeqCst);
+        if prev == STATE_HALF_OPEN || prev == STATE_FORCED_OPEN {
+            self.consecutive_failures.store(0, Ordering::SeqCst);
+            self.failure_count.store(0, Ordering::SeqCst);
+        }
     }
 
     // ── Manual controls ───────────────────────────────────────────────────
@@ -460,8 +464,8 @@ impl BreakerPolicy {
         self.consecutive_successes.store(0, Ordering::SeqCst);
         self.open_transition_count.store(0, Ordering::SeqCst);
         self.half_open_calls_made.store(0, Ordering::SeqCst);
-        *self.last_failure_time.lock().unwrap() = None;
-        self.window_calls.lock().unwrap().clear();
+        *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.window_calls.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// Manually forces the circuit into the Open state. All requests will
@@ -499,10 +503,12 @@ impl BreakerPolicy {
             let calls_made = self.half_open_calls_made.load(Ordering::SeqCst);
             let successes = self.consecutive_successes.load(Ordering::SeqCst);
 
-            if calls_made >= self.half_open_max_calls as u64
-                && successes >= self.success_threshold as u64
-            {
-                self.try_transition_to_closed();
+            if calls_made >= self.half_open_max_calls as u64 {
+                if successes >= self.success_threshold as u64 {
+                    self.try_transition_to_closed();
+                } else {
+                    self.try_transition_to_open();
+                }
             }
         } else if state == STATE_CLOSED {
             self.success_count.fetch_add(1, Ordering::SeqCst);
@@ -512,7 +518,7 @@ impl BreakerPolicy {
 
         self.window_calls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .push_back((time::Instant::now(), true));
     }
 
@@ -531,14 +537,13 @@ impl BreakerPolicy {
     pub fn record_failure(&self) {
         let state = self.state.load(Ordering::SeqCst);
 
-        *self.last_failure_time.lock().unwrap() = Some(time::Instant::now());
         self.failure_count.fetch_add(1, Ordering::SeqCst);
         self.consecutive_failures.fetch_add(1, Ordering::SeqCst);
         self.consecutive_successes.store(0, Ordering::SeqCst);
 
         self.window_calls
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .push_back((time::Instant::now(), false));
 
         if state == STATE_HALF_OPEN {
@@ -569,7 +574,7 @@ impl BreakerPolicy {
     /// 2. Count successes (`true`) and failures (`false`).
     /// 3. If failure count / total ≥ 0.5, transition to Open.
     fn check_sliding_window_and_trip(&self) {
-        let mut calls = self.window_calls.lock().unwrap();
+        let mut calls = self.window_calls.lock().unwrap_or_else(|e| e.into_inner());
         let now = time::Instant::now();
 
         while let Some((timestamp, _)) = calls.front() {
@@ -612,7 +617,7 @@ impl BreakerPolicy {
         match state {
             STATE_CLOSED => true,
             STATE_OPEN => {
-                if let Some(last_failure) = *self.last_failure_time.lock().unwrap() {
+                if let Some(last_failure) = *self.last_failure_time.lock().unwrap_or_else(|e| e.into_inner()) {
                     let timeout = self.calculate_open_timeout();
                     if last_failure.elapsed() >= timeout {
                         self.try_transition_to_half_open();

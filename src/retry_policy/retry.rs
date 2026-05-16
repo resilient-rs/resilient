@@ -150,43 +150,42 @@ impl<T, E> Policy<T, E> for RetryPolicy {
         T: Send,
         E: Send,
     {
-        let max_retries = self.max_retries.max(1);
+        let max_retries = self.max_retries;
         let max_duration = self.max_duration;
+        let total_attempts = max_retries + 1;
 
         async move {
             let start = std::time::Instant::now();
 
-            // DecorrelatedJitter tracks the previous delay across iterations.
             let mut last_delay = self.min_delay;
 
-            for attempt in 0..max_retries {
+            for attempt in 0..=max_retries {
                 let result = AssertUnwindSafe(f()).catch_unwind().await;
 
                 match result {
                     Ok(Ok(val)) => return Ok(val),
                     Ok(Err(e)) => {
-                        if attempt + 1 >= max_retries || start.elapsed() >= max_duration {
+                        if attempt >= max_retries || start.elapsed() >= max_duration {
                             return Err(e);
                         }
                     }
                     Err(panic) => {
-                        if attempt + 1 >= max_retries || start.elapsed() >= max_duration {
+                        if attempt >= max_retries || start.elapsed() >= max_duration {
                             std::panic::resume_unwind(panic);
                         }
                     }
                 }
 
-                let base = self.base_delay(attempt, max_retries);
+                let base = self.base_delay(attempt, total_attempts);
                 let mut delay = self.jittered_delay(base, &mut last_delay);
 
-                // Clamp so we never exceed the total duration budget.
                 let remaining = max_duration.saturating_sub(start.elapsed());
                 delay = delay.min(remaining);
 
                 tokio::time::sleep(delay).await;
             }
 
-            f().await
+            unreachable!()
         }
     }
 }

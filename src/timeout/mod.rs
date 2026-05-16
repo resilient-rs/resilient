@@ -1,7 +1,7 @@
 //! Timeout policy — imposes a deadline on async operations.
 //!
 //! Provides [`TimeoutPolicy`] and its [`Builder`] to configure
-//! duration, cancellation, interrupt behaviour, and lifecycle hooks.
+//! duration, cancellation behaviour, and lifecycle hooks.
 
 pub mod errors;
 pub mod timeout_policy;

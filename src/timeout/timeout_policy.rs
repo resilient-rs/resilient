@@ -27,7 +27,6 @@ type Hook = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 /// |--------------|----------|
 /// | duration     | 30 s     |
 /// | cancel       | `true`   |
-/// | interrupt    | `false`  |
 ///
 /// # Example
 ///
@@ -44,12 +43,8 @@ pub struct TimeoutPolicy {
     /// Maximum time allowed for the operation.
     pub(crate) duration: Duration,
     /// If `true`, the future is cancelled on timeout (uses
-    /// `tokio::time::timeout`).  When `interrupt` is `true` this is
-    /// forced to `true` regardless.
+    /// `tokio::time::timeout`).
     pub(crate) cancel: bool,
-    /// If `true`, the task is also interrupted on timeout (requires
-    /// cooperation from the spawned task).  Implies `cancel`.
-    pub(crate) interrupt: bool,
     /// Optional name used in timeout error messages for easier
     /// debugging.
     pub(crate) name: Option<String>,
@@ -75,7 +70,6 @@ pub struct TimeoutPolicy {
 /// |----------------|----------|
 /// | `duration`     | 30 s     |
 /// | `cancel`       | `true`   |
-/// | `interrupt`    | `false`  |
 ///
 /// # Example
 ///
@@ -91,7 +85,6 @@ pub struct TimeoutPolicy {
 pub struct Builder {
     duration: Duration,
     cancel: bool,
-    interrupt: bool,
     name: Option<String>,
     on_timeout: Option<Hook>,
     on_success: Option<Hook>,
@@ -104,12 +97,10 @@ impl Builder {
     /// Defaults:
     /// - `duration`: 30 seconds
     /// - `cancel`: `true`
-    /// - `interrupt`: `false`
     pub fn new() -> Self {
         Self {
             duration: Duration::from_secs(30),
             cancel: true,
-            interrupt: false,
             name: None,
             on_timeout: None,
             on_success: None,
@@ -149,20 +140,8 @@ impl Builder {
 
     /// Whether the underlying `tokio::time::timeout` mechanism is
     /// used to cancel the future on timeout.  Default: `true`.
-    ///
-    /// When `interrupt` is enabled this is forced to `true`
-    /// regardless of the value passed here.
     pub fn with_cancel(mut self, cancel: bool) -> Self {
         self.cancel = cancel;
-        self
-    }
-
-    /// Whether to interrupt the running task on timeout (in addition
-    /// to cancelling).  Default: `false`.
-    ///
-    /// Implies `cancel = true`.
-    pub fn with_interrupt(mut self, interrupt: bool) -> Self {
-        self.interrupt = interrupt;
         self
     }
 
@@ -224,14 +203,10 @@ impl Builder {
 
     /// Consumes the `Builder` and produces a ready-to-use
     /// [`TimeoutPolicy`].
-    ///
-    /// During conversion `cancel` is forced to `true` if `interrupt`
-    /// is enabled.
     pub fn build(self) -> TimeoutPolicy {
         TimeoutPolicy {
             duration: self.duration,
-            cancel: self.cancel || self.interrupt,
-            interrupt: self.interrupt,
+            cancel: self.cancel,
             name: self.name,
             on_timeout: self.on_timeout,
             on_success: self.on_success,
@@ -310,10 +285,7 @@ where
         let this = self.clone();
 
         async move {
-            // When cancel or interrupt is enabled we use
-            // tokio::time::timeout so the future is guaranteed to
-            // yield after `duration` elapses.
-            if this.cancel || this.interrupt {
+            if this.cancel {
                 match tokio::time::timeout(this.duration, f()).await {
                     Ok(Ok(val)) => {
                         // Operation completed within the deadline.
@@ -344,9 +316,8 @@ where
                     }
                 }
             } else {
-                // cancel and interrupt are both disabled – run the
-                // operation without any timeout at all and just fire
-                // lifecycle hooks.
+                // cancel is disabled – run the operation without any
+                // timeout at all and just fire lifecycle hooks.
                 let result = f().await;
                 match &result {
                     Ok(_) => {

@@ -25,7 +25,8 @@ use crate::rate_limit::RateLimitError;
 /// Mutable state shared across all clones of a [`RateLimiter`].
 struct Inner {
     /// Current number of tokens in the bucket (never exceeds `max_tokens`).
-    available_tokens: usize,
+    /// Stored as `f64` to track fractional tokens from partial refill intervals.
+    available_tokens: f64,
     /// Timestamp of the most recent token refill.
     last_refill: Instant,
 }
@@ -79,7 +80,7 @@ impl Default for RateLimiter {
             max_tokens: 10,
             refill_rate: Duration::from_secs(1),
             inner: Arc::new(Mutex::new(Inner {
-                available_tokens: 10,
+                available_tokens: 10.0,
                 last_refill: now,
             })),
         }
@@ -114,20 +115,22 @@ impl RateLimiter {
     /// 3. Otherwise returns `false` (the bucket state is still updated with
     ///    any refilled tokens so the caller can inspect the new level).
     pub fn try_consume(&self, tokens: usize) -> bool {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        let elapsed = now.duration_since(inner.last_refill);
-        let tokens_to_add =
-            (elapsed.as_secs_f64() / self.refill_rate.as_secs_f64()) as usize;
+        let elapsed = now
+            .checked_duration_since(inner.last_refill)
+            .unwrap_or(Duration::ZERO);
+        let tokens_to_add = elapsed.as_secs_f64() / self.refill_rate.as_secs_f64();
 
         inner.available_tokens =
-            (inner.available_tokens + tokens_to_add).min(self.max_tokens);
-        if tokens_to_add > 0 {
-            inner.last_refill = now;
-        }
+            (inner.available_tokens + tokens_to_add).min(self.max_tokens as f64);
+        inner.last_refill = now;
 
-        if inner.available_tokens >= tokens {
-            inner.available_tokens -= tokens;
+        if inner.available_tokens >= tokens as f64 {
+            inner.available_tokens -= tokens as f64;
             true
         } else {
             false
@@ -139,7 +142,10 @@ impl RateLimiter {
     /// This is a snapshot — the value may change immediately after the call
     /// returns due to concurrent access from another task.
     pub fn available_tokens(&self) -> usize {
-        self.inner.lock().unwrap().available_tokens
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .available_tokens as usize
     }
 
     /// Creates a new handle that shares the same underlying bucket state.
