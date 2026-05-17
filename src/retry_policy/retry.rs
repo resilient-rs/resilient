@@ -7,8 +7,8 @@
 //! 4. On panic   → catches it with `AssertUnwindSafe` and either resumes or retries.
 //! 5. Stops when the retry budget or `max_duration` is exhausted.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::{future::Future, panic::AssertUnwindSafe, time};
 
 use futures_util::FutureExt;
@@ -149,6 +149,62 @@ impl RetryPolicy {
     }
 }
 
+// ── Convenience `run` method (same signature pattern as Pipeline::run) ─────
+
+impl RetryPolicy {
+    /// Executes the operation with retry logic.
+    ///
+    /// Behaves exactly like running a `Pipeline` configured with only a retry
+    /// policy: calls the operation up to `max_retries + 1` times, applying
+    /// the configured back-off and jitter between attempts.
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send,
+    {
+        let max_retries = self.max_retries;
+        let max_duration = self.max_duration;
+        let total_attempts = max_retries + 1;
+
+        let start = time::Instant::now();
+        let mut last_delay = self.min_delay;
+
+        for attempt in 0..=max_retries {
+            let result = AssertUnwindSafe(f()).catch_unwind().await;
+
+            match result {
+                Ok(Ok(val)) => return Ok(val),
+                Ok(Err(e)) => {
+                    let timed_out = self
+                        .timeout_occurred
+                        .as_ref()
+                        .map(|f| f.load(Ordering::Relaxed))
+                        .unwrap_or(false);
+                    if attempt >= max_retries || start.elapsed() >= max_duration || timed_out {
+                        return Err(e);
+                    }
+                }
+                Err(panic) => {
+                    if attempt >= max_retries || start.elapsed() >= max_duration {
+                        std::panic::resume_unwind(panic);
+                    }
+                }
+            }
+
+            let base = self.base_delay(attempt, total_attempts);
+            let mut delay = self.jittered_delay(base, &mut last_delay);
+            let remaining = max_duration.saturating_sub(start.elapsed());
+            delay = delay.min(remaining);
+
+            tokio::time::sleep(delay).await;
+        }
+
+        unreachable!()
+    }
+}
+
 impl<T, E> Policy<T, E> for RetryPolicy {
     fn call<F, Fut>(&self, f: &mut F) -> impl Future<Output = Result<T, E>> + Send
     where
@@ -172,7 +228,9 @@ impl<T, E> Policy<T, E> for RetryPolicy {
                 match result {
                     Ok(Ok(val)) => return Ok(val),
                     Ok(Err(e)) => {
-                        let timed_out = self.timeout_occurred.as_ref()
+                        let timed_out = self
+                            .timeout_occurred
+                            .as_ref()
                             .map(|f| f.load(Ordering::Relaxed))
                             .unwrap_or(false);
                         if attempt >= max_retries || start.elapsed() >= max_duration || timed_out {

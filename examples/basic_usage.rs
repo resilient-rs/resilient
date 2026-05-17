@@ -1,8 +1,8 @@
-use resilient::BreakerPolicy;
 use resilient::pipeline::Pipeline;
+use resilient::timeout::Builder as TimeoutBuilder;
+use resilient::BreakerPolicy;
 use resilient::RateLimiter;
 use resilient::RetryPolicy;
-use resilient::timeout::Builder as TimeoutBuilder;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 

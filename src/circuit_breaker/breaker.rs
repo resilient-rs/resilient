@@ -694,6 +694,43 @@ where
     }
 }
 
+// ── Convenience `run` method (same signature pattern as Pipeline::run) ─────
+
+impl BreakerPolicy {
+    /// Executes the operation through the circuit breaker.
+    ///
+    /// Behaves exactly like running a `Pipeline` configured with only a
+    /// circuit breaker: checks [`should_allow_request`](BreakerPolicy::should_allow_request),
+    /// rejects with `CircuitError` if the circuit is open, otherwise runs
+    /// the operation and records the outcome.
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send + From<crate::circuit_breaker::CircuitError>,
+    {
+        let policy = self.clone_inner();
+
+        if !policy.should_allow_request() {
+            return Err(crate::circuit_breaker::CircuitError::CircuitOpen {
+                last_failure_time: policy.last_failure_time(),
+                failure_count: policy.consecutive_failures(),
+            }
+            .into());
+        }
+
+        let result = f().await;
+
+        match &result {
+            Ok(_) => policy.record_success(),
+            Err(_) => policy.record_failure(),
+        }
+
+        result
+    }
+}
+
 // ── Cloning helper ────────────────────────────────────────────────────────
 
 impl BreakerPolicy {

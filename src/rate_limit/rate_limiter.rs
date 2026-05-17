@@ -153,6 +153,28 @@ impl RateLimiter {
     }
 }
 
+// ── Convenience `run` method (same signature pattern as Pipeline::run) ─────
+
+impl RateLimiter {
+    /// Executes the operation through the rate limiter.
+    ///
+    /// Behaves exactly like running a `Pipeline` configured with only a rate
+    /// limiter: consumes one token, rejects with `RateLimitError` if the
+    /// bucket is empty, otherwise runs the operation.
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send + From<RateLimitError>,
+    {
+        if !self.try_consume(1) {
+            return Err(RateLimitError::RateLimited.into());
+        }
+        f().await
+    }
+}
+
 // ── Policy trait implementation ────────────────────────────────────────────
 
 impl<T, E> Policy<T, E> for RateLimiter

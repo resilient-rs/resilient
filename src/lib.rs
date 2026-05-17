@@ -3,15 +3,15 @@
 //! that can be layered via a pipeline.
 
 pub mod circuit_breaker;
-pub use circuit_breaker as breaker;
 pub use breaker::BreakerPolicy;
+pub use circuit_breaker as breaker;
 pub mod pipeline;
 pub mod policy;
 pub mod rate_limit;
-pub use rate_limit as limiter;
 pub use limiter::RateLimiter;
+pub use rate_limit as limiter;
 pub mod retry_policy;
-pub use retry_policy as retry;
 pub use retry::RetryPolicy;
+pub use retry_policy as retry;
 pub mod timeout;
 pub use timeout::TimeoutPolicy;

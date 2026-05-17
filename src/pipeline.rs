@@ -60,11 +60,11 @@
 //!     .await;
 //! ```
 
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::circuit_breaker::{BreakerPolicy, CircuitError};
 use crate::policy::Policy;
@@ -258,9 +258,7 @@ impl Pipeline {
                 let mut timed = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(async {
-                                Err(RateLimitError::RateLimited.into())
-                            })
+                            return Box::pin(async { Err(RateLimitError::RateLimited.into()) })
                                 as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
@@ -293,8 +291,7 @@ impl Pipeline {
                                 .into())
                             }
                         }
-                    })
-                        as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
+                    }) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
                 };
                 retry.call(&mut timed).await
             }
@@ -302,9 +299,7 @@ impl Pipeline {
                 let mut g = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(async {
-                                Err(RateLimitError::RateLimited.into())
-                            })
+                            return Box::pin(async { Err(RateLimitError::RateLimited.into()) })
                                 as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
@@ -316,9 +311,7 @@ impl Pipeline {
                 let mut g = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(async {
-                                Err(RateLimitError::RateLimited.into())
-                            })
+                            return Box::pin(async { Err(RateLimitError::RateLimited.into()) })
                                 as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }

@@ -252,6 +252,69 @@ impl TimeoutPolicy {
 }
 
 // ---------------------------------------------------------------------------
+// Convenience `run` method (same signature pattern as Pipeline::run)
+// ---------------------------------------------------------------------------
+
+impl TimeoutPolicy {
+    /// Executes the operation with a timeout.
+    ///
+    /// Behaves exactly like running a `Pipeline` configured with only a
+    /// timeout policy: enforces a deadline on the operation and returns
+    /// `TimeoutError::Elapsed` when the deadline is exceeded.
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send + From<TimeoutError>,
+    {
+        let this = self.clone();
+
+        if this.cancel {
+            match tokio::time::timeout(this.duration, f()).await {
+                Ok(Ok(val)) => {
+                    if let Some(ref cb) = this.on_success {
+                        cb().await;
+                    }
+                    Ok(val)
+                }
+                Ok(Err(e)) => {
+                    if let Some(ref cb) = this.on_failure {
+                        cb().await;
+                    }
+                    Err(e)
+                }
+                Err(_elapsed) => {
+                    if let Some(ref cb) = this.on_timeout {
+                        cb().await;
+                    }
+                    Err(TimeoutError::Elapsed {
+                        duration: this.duration,
+                        name: this.name,
+                    }
+                    .into())
+                }
+            }
+        } else {
+            let result = f().await;
+            match &result {
+                Ok(_) => {
+                    if let Some(ref cb) = this.on_success {
+                        cb().await;
+                    }
+                }
+                Err(_) => {
+                    if let Some(ref cb) = this.on_failure {
+                        cb().await;
+                    }
+                }
+            }
+            result
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Default implementations
 // ---------------------------------------------------------------------------
 
