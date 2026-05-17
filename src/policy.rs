@@ -28,5 +28,5 @@ pub trait Policy<T, E> {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send;
+        E: Send + 'static;
 }

@@ -231,7 +231,7 @@ impl Pipeline {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
+        E: Send + 'static + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
     {
         if let Some(ref cb) = self.circuit_breaker {
             if !cb.should_allow_request() {
@@ -361,7 +361,7 @@ where
     F: Fn() -> Fut + Send + Sync,
     Fut: Future<Output = Result<T, E>> + Send,
     T: Send,
-    E: Send,
+    E: Send + 'static,
 {
     /// Runs the primary pipeline and falls back on error.
     ///
@@ -387,7 +387,7 @@ where
     where
         G: FnMut() -> GFut + Send,
         GFut: Future<Output = Result<T, E>> + Send,
-        E: From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
+        E: Send + 'static + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
     {
         match self.primary.run(op).await {
             Ok(val) => Ok(val),
