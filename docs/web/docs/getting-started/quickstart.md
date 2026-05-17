@@ -19,10 +19,10 @@ Create a `Pipeline` with all four policies:
 
 ```rust
 use resilient::pipeline::Pipeline;
-use resilient::retry_policy::RetryPolicy;
-use resilient::timeout::TimeoutPolicy;
-use resilient::circuit_breaker::BreakerPolicy;
-use resilient::rate_limit::RateLimiter;
+use resilient::RetryPolicy;
+use resilient::TimeoutPolicy;
+use resilient::BreakerPolicy;
+use resilient::RateLimiter;
 use std::time::Duration;
 
 #[tokio::main]
@@ -63,7 +63,7 @@ The pipeline automatically retries failed operations:
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use resilient::pipeline::Pipeline;
-use resilient::retry_policy::RetryPolicy;
+use resilient::RetryPolicy;
 
 let pipeline = Pipeline::default()
     .with_retry(RetryPolicy::default().with_max_retries(3));

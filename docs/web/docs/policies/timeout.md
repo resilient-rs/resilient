@@ -13,7 +13,7 @@ The timeout policy enforces a deadline on async operations. If the operation doe
 ## Usage
 
 ```rust
-use resilient::timeout::TimeoutPolicy;
+use resilient::TimeoutPolicy;
 use std::time::Duration;
 
 let policy = TimeoutPolicy::default()

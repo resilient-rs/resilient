@@ -6,7 +6,7 @@ The fallback pipeline pairs a primary `Pipeline` with a fallback closure that ru
 
 ```rust
 use resilient::pipeline::Pipeline;
-use resilient::retry_policy::RetryPolicy;
+use resilient::retry::RetryPolicy;
 
 let pipeline = Pipeline::default()
     .with_retry(RetryPolicy::default().with_max_retries(3));

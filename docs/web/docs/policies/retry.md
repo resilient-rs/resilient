@@ -15,7 +15,7 @@ The retry policy executes an async operation up to `N` times on failure, with co
 ## Usage
 
 ```rust
-use resilient::retry_policy::{RetryPolicy, RetryMode};
+use resilient::retry::{RetryPolicy, RetryMode};
 use std::time::Duration;
 
 let policy = RetryPolicy::default()

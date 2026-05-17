@@ -58,11 +58,11 @@ pub enum MyError {
     #[error("Operation failed: {0}")]
     Operation(String),
     #[error("Circuit breaker error: {0}")]
-    Circuit(#[from] resilient::circuit_breaker::CircuitError),
+    Circuit(#[from] resilient::breaker::CircuitError),
     #[error("Timeout: {0}")]
     Timeout(#[from] resilient::timeout::TimeoutError),
     #[error("Rate limited: {0}")]
-    RateLimit(#[from] resilient::rate_limit::RateLimitError),
+    RateLimit(#[from] resilient::limiter::RateLimitError),
 }
 ```
 

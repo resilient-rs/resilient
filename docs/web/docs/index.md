@@ -24,10 +24,10 @@ Building reliable distributed systems means handling failures gracefully. resili
 
 ```rust
 use resilient::pipeline::Pipeline;
-use resilient::retry_policy::RetryPolicy;
-use resilient::timeout::TimeoutPolicy;
-use resilient::circuit_breaker::BreakerPolicy;
-use resilient::rate_limit::RateLimiter;
+use resilient::RetryPolicy;
+use resilient::TimeoutPolicy;
+use resilient::BreakerPolicy;
+use resilient::RateLimiter;
 use std::time::Duration;
 
 let pipeline = Pipeline::default()

@@ -8,7 +8,7 @@ Construct a pipeline using the builder methods:
 
 ```rust
 use resilient::pipeline::Pipeline;
-use resilient::retry_policy::RetryPolicy;
+use resilient::RetryPolicy;
 
 let pipeline = Pipeline::new()
     .with_retry(RetryPolicy::default())

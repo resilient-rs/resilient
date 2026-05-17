@@ -19,7 +19,7 @@ The rate limiter uses a **token-bucket** algorithm to control how often an opera
 ## Usage
 
 ```rust
-use resilient::rate_limit::RateLimiter;
+use resilient::RateLimiter;
 use std::time::Duration;
 
 let rl = RateLimiter::default()
@@ -51,7 +51,7 @@ tokio::spawn(async move {
 ## Direct Usage
 
 ```rust
-use resilient::rate_limit::RateLimiter;
+use resilient::RateLimiter;
 use resilient::policy::Policy;
 
 let rl = RateLimiter::default().with_max_tokens(5);

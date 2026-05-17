@@ -1,7 +1,7 @@
-use resilient::circuit_breaker::BreakerPolicy;
+use resilient::BreakerPolicy;
 use resilient::pipeline::Pipeline;
-use resilient::rate_limit::RateLimiter;
-use resilient::retry_policy::RetryPolicy;
+use resilient::RateLimiter;
+use resilient::RetryPolicy;
 use resilient::timeout::Builder as TimeoutBuilder;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;

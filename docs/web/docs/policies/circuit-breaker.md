@@ -51,7 +51,7 @@ The circuit breaker pattern prevents cascading failures by monitoring operation 
 The simplest strategy. The circuit trips after `failure_threshold` consecutive failures. A single success resets the counter.
 
 ```rust
-use resilient::circuit_breaker::{BreakerPolicy, CircuitBreakerMode};
+use resilient::breaker::{BreakerPolicy, CircuitBreakerMode};
 use std::time::Duration;
 
 let cb = BreakerPolicy::default()
@@ -113,7 +113,7 @@ cb.reset();
 The circuit breaker can be used directly via the `Policy` trait:
 
 ```rust
-use resilient::circuit_breaker::BreakerPolicy;
+use resilient::BreakerPolicy;
 
 let cb = BreakerPolicy::default().with_failure_threshold(3);
 

@@ -35,7 +35,7 @@ resilient provides four built-in policy implementations:
 Policies can be used directly:
 
 ```rust
-use resilient::retry_policy::RetryPolicy;
+use resilient::RetryPolicy;
 
 let policy = RetryPolicy::default().with_max_retries(3);
 let result = policy
