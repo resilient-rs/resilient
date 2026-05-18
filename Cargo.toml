@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 thiserror = "2.0.18"
-tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["time", "macros", "rt-multi-thread", "sync"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 fastrand = "2"
