@@ -2,9 +2,26 @@
 name = "resilient"
 version = "0.1.0"
 edition = "2021"
+description = "A Rust resilience library providing retry, circuit breaker, timeout, bulkhead, and rate limiting policies"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/resilient-rs/resilient"
+homepage = "https://resilient.jofab08.workers.dev/"
+keywords = ["resilience", "retry", "circuit-breaker", "timeout", "bulkhead", "rate-limiter"]
+categories = ["asynchronous", "network", "fault-tolerance"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 thiserror = "2.0.18"
 tokio = { version = "1", features = ["time", "macros", "rt-multi-thread", "sync"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 fastrand = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[features]
+default = []
+async-closure = []
