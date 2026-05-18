@@ -20,5 +20,5 @@
 pub mod errors;
 pub mod rate_limiter;
 
-pub use errors::RateLimitError;
+pub use errors::{RateLimitError, RateLimitResult};
 pub use rate_limiter::RateLimiter;

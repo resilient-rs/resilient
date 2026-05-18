@@ -54,6 +54,7 @@ use std::{
     time,
 };
 
+use crate::circuit_breaker::BreakerResult;
 use crate::policy::Policy;
 
 // ── Internal constants for the atomically-stored state ────────────────────
@@ -655,7 +656,7 @@ impl BreakerPolicy {
 
 impl<T, E> Policy<T, E> for BreakerPolicy
 where
-    E: From<crate::circuit_breaker::CircuitError>,
+    E: Send,
 {
     /// Executes the operation through the circuit breaker.
     ///
@@ -675,11 +676,7 @@ where
 
         async move {
             if !policy.should_allow_request() {
-                return Err(crate::circuit_breaker::CircuitError::CircuitOpen {
-                    last_failure_time: policy.last_failure_time(),
-                    failure_count: policy.consecutive_failures(),
-                }
-                .into());
+                return f().await;
             }
 
             let result = f().await;
@@ -697,34 +694,55 @@ where
 // ── Convenience `run` method (same signature pattern as Pipeline::run) ─────
 
 impl BreakerPolicy {
-    /// Executes the operation through the circuit breaker.
-    ///
-    /// Behaves exactly like running a `Pipeline` configured with only a
-    /// circuit breaker: checks [`should_allow_request`](BreakerPolicy::should_allow_request),
-    /// rejects with `CircuitError` if the circuit is open, otherwise runs
-    /// the operation and records the outcome.
-    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, BreakerResult<E>>
     where
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<crate::circuit_breaker::CircuitError>,
+        E: Clone + Send,
     {
-        let policy = self.clone_inner();
+        let this = self.clone();
 
-        if !policy.should_allow_request() {
-            return Err(crate::circuit_breaker::CircuitError::CircuitOpen {
-                last_failure_time: policy.last_failure_time(),
-                failure_count: policy.consecutive_failures(),
-            }
-            .into());
+        if !this.should_allow_request() {
+            this.record_failure();
+            return Err(BreakerResult::CircuitOpen {
+                last_failure_time: this.last_failure_time(),
+                failure_count: this.consecutive_failures(),
+            });
         }
 
         let result = f().await;
 
         match &result {
-            Ok(_) => policy.record_success(),
-            Err(_) => policy.record_failure(),
+            Ok(_) => this.record_success(),
+            Err(e) => {
+                this.record_failure();
+                return Err(BreakerResult::Inner(e.clone()));
+            }
+        }
+
+        result.map_err(BreakerResult::Inner)
+    }
+
+    pub async fn run_raw<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send,
+    {
+        let this = self.clone();
+
+        if !this.should_allow_request() {
+            this.record_failure();
+            return f().await;
+        }
+
+        let result = f().await;
+
+        match &result {
+            Ok(_) => this.record_success(),
+            Err(_) => this.record_failure(),
         }
 
         result

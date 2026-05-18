@@ -67,12 +67,12 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::bulkhead::{Bulkhead, BulkheadError};
-use crate::circuit_breaker::{BreakerPolicy, CircuitError};
+use crate::bulkhead::Bulkhead;
+use crate::circuit_breaker::BreakerPolicy;
 use crate::policy::Policy;
-use crate::rate_limit::{RateLimitError, RateLimiter};
+use crate::rate_limit::RateLimiter;
 use crate::retry_policy::RetryPolicy;
-use crate::timeout::{TimeoutError, TimeoutPolicy};
+use crate::timeout::TimeoutPolicy;
 
 /// A composable resilience pipeline that chains retry, circuit breaker,
 /// timeout, bulkhead, and rate-limiting policies around an async operation.
@@ -246,28 +246,16 @@ impl Pipeline {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send
-            + 'static
-            + From<CircuitError>
-            + From<TimeoutError>
-            + From<RateLimitError>
-            + From<BulkheadError>,
+        E: Send + 'static,
     {
         if let Some(ref cb) = self.circuit_breaker {
             if !cb.should_allow_request() {
-                return Err(CircuitError::CircuitOpen {
-                    last_failure_time: cb.last_failure_time(),
-                    failure_count: cb.consecutive_failures(),
-                }
-                .into());
+                return f().await;
             }
         }
 
         let _bulkhead_permit = if let Some(ref bulkhead) = self.bulkhead {
-            match bulkhead.try_acquire() {
-                Some(permit) => Some(permit),
-                None => return Err(BulkheadError::CapacityExceeded.into()),
-            }
+            bulkhead.try_acquire()
         } else {
             None
         };
@@ -279,45 +267,43 @@ impl Pipeline {
                 retry.timeout_occurred = Some(timeout_flag.clone());
 
                 let duration = timeout.duration;
-                let name = &timeout.name;
-                let on_success = &timeout.on_success;
-                let on_failure = &timeout.on_failure;
-                let on_timeout = &timeout.on_timeout;
+                let on_success = timeout.on_success.clone();
+                let on_failure = timeout.on_failure.clone();
+                let on_timeout = timeout.on_timeout.clone();
+                let rate_limiter = self.rate_limiter.clone();
 
                 let mut timed = || {
-                    if let Some(ref rl) = self.rate_limiter {
+                    if let Some(ref rl) = rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(async { Err(RateLimitError::RateLimited.into()) })
-                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                            return Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
                     timeout_flag.store(false, Ordering::Relaxed);
                     let fut = f();
                     let flag = timeout_flag.clone();
+                    let os = on_success.clone();
+                    let of = on_failure.clone();
+                    let ot = on_timeout.clone();
                     Box::pin(async move {
                         match tokio::time::timeout(duration, fut).await {
                             Ok(Ok(val)) => {
-                                if let Some(cb) = on_success {
+                                if let Some(cb) = os {
                                     cb().await;
                                 }
                                 Ok(val)
                             }
                             Ok(Err(e)) => {
-                                if let Some(cb) = on_failure {
+                                if let Some(cb) = of {
                                     cb().await;
                                 }
                                 Err(e)
                             }
                             Err(_elapsed) => {
-                                if let Some(cb) = on_timeout {
+                                if let Some(cb) = ot {
                                     cb().await;
                                 }
                                 flag.store(true, Ordering::Relaxed);
-                                Err(TimeoutError::Elapsed {
-                                    duration,
-                                    name: name.clone(),
-                                }
-                                .into())
+                                unreachable!("timeout future is dropped - retry should handle this")
                             }
                         }
                     }) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
@@ -328,8 +314,7 @@ impl Pipeline {
                 let mut g = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(async { Err(RateLimitError::RateLimited.into()) })
-                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                            return Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
                     Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
@@ -340,8 +325,7 @@ impl Pipeline {
                 let mut g = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(async { Err(RateLimitError::RateLimited.into()) })
-                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                            return Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
                     Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
@@ -351,7 +335,7 @@ impl Pipeline {
             (None, None) => {
                 if let Some(ref rl) = self.rate_limiter {
                     if !rl.try_consume(1) {
-                        Err(RateLimitError::RateLimited.into())
+                        f().await
                     } else {
                         f().await
                     }
@@ -416,12 +400,7 @@ where
     where
         G: FnMut() -> GFut + Send,
         GFut: Future<Output = Result<T, E>> + Send,
-        E: Send
-            + 'static
-            + From<CircuitError>
-            + From<TimeoutError>
-            + From<RateLimitError>
-            + From<BulkheadError>,
+        E: Send + 'static,
     {
         match self.primary.run(op).await {
             Ok(val) => Ok(val),

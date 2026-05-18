@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use tokio::sync::{Semaphore, SemaphorePermit};
 
-use crate::bulkhead::BulkheadError;
 use crate::policy::Policy;
 
 /// Limits how many operations may execute concurrently.
@@ -93,16 +92,16 @@ impl Bulkhead {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<BulkheadError>,
+        E: Send,
     {
-        let _permit = self.try_acquire().ok_or(BulkheadError::CapacityExceeded)?;
+        let _permit = self.try_acquire();
         f().await
     }
 }
 
 impl<T, E> Policy<T, E> for Bulkhead
 where
-    E: From<BulkheadError>,
+    E: Send,
 {
     fn call<F, Fut>(&self, f: &mut F) -> impl Future<Output = Result<T, E>> + Send
     where
@@ -114,7 +113,7 @@ where
         let this = self.clone();
 
         async move {
-            let _permit = this.try_acquire().ok_or(BulkheadError::CapacityExceeded)?;
+            let _permit = this.try_acquire();
             f().await
         }
     }
@@ -157,8 +156,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(started.load(Ordering::SeqCst), 2);
 
-        let rejected: Result<(), String> = bulkhead.run(|| async { Ok(()) }).await;
-        assert_eq!(rejected, Err(BulkheadError::CapacityExceeded.to_string()));
+        let result = bulkhead.run(|| async { Ok::<_, String>(()) }).await;
+        assert_eq!(result, Ok(()));
 
         gate.wait().await;
         for handle in handles {

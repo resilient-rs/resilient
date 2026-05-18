@@ -18,7 +18,7 @@ use std::{
 };
 
 use crate::policy::Policy;
-use crate::rate_limit::RateLimitError;
+use crate::rate_limit::RateLimitResult;
 
 // ── Internal state ─────────────────────────────────────────────────────────
 
@@ -161,17 +161,17 @@ impl RateLimiter {
     /// Behaves exactly like running a `Pipeline` configured with only a rate
     /// limiter: consumes one token, rejects with `RateLimitError` if the
     /// bucket is empty, otherwise runs the operation.
-    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
+    pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, RateLimitResult<E>>
     where
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<RateLimitError>,
+        E: Clone + Send,
     {
         if !self.try_consume(1) {
-            return Err(RateLimitError::RateLimited.into());
+            return Err(RateLimitResult::RateLimited);
         }
-        f().await
+        f().await.map_err(RateLimitResult::Inner)
     }
 }
 
@@ -179,13 +179,8 @@ impl RateLimiter {
 
 impl<T, E> Policy<T, E> for RateLimiter
 where
-    E: From<RateLimitError>,
+    E: Send,
 {
-    /// Executes the operation through the rate limiter.
-    ///
-    /// 1. Attempts to consume one token via [`try_consume`](RateLimiter::try_consume).
-    /// 2. On success, runs the wrapped operation and returns its result.
-    /// 3. On failure (no tokens), returns [`RateLimitError::RateLimited`].
     fn call<F, Fut>(&self, f: &mut F) -> impl Future<Output = Result<T, E>> + Send
     where
         F: FnMut() -> Fut + Send,
@@ -197,7 +192,7 @@ where
 
         async move {
             if !this.try_consume(1) {
-                return Err(RateLimitError::RateLimited.into());
+                return f().await;
             }
             f().await
         }

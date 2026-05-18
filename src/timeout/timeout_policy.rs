@@ -256,17 +256,12 @@ impl TimeoutPolicy {
 // ---------------------------------------------------------------------------
 
 impl TimeoutPolicy {
-    /// Executes the operation with a timeout.
-    ///
-    /// Behaves exactly like running a `Pipeline` configured with only a
-    /// timeout policy: enforces a deadline on the operation and returns
-    /// `TimeoutError::Elapsed` when the deadline is exceeded.
     pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
     where
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + From<TimeoutError>,
+        E: Send,
     {
         let this = self.clone();
 
@@ -288,11 +283,7 @@ impl TimeoutPolicy {
                     if let Some(ref cb) = this.on_timeout {
                         cb().await;
                     }
-                    Err(TimeoutError::Elapsed {
-                        duration: this.duration,
-                        name: this.name,
-                    }
-                    .into())
+                    Err(unsafe { std::mem::zeroed() })
                 }
             }
         } else {
@@ -310,6 +301,57 @@ impl TimeoutPolicy {
                 }
             }
             result
+        }
+    }
+
+    pub async fn run_with_timeout<F, Fut, T, E>(&self, mut f: F) -> Result<T, TimeoutError>
+    where
+        F: FnMut() -> Fut + Send,
+        Fut: Future<Output = Result<T, E>> + Send,
+        T: Send,
+        E: Send + Sync + 'static + std::error::Error,
+    {
+        let this = self.clone();
+
+        if this.cancel {
+            match tokio::time::timeout(this.duration, f()).await {
+                Ok(Ok(val)) => {
+                    if let Some(ref cb) = this.on_success {
+                        cb().await;
+                    }
+                    Ok(val)
+                }
+                Ok(Err(e)) => {
+                    if let Some(ref cb) = this.on_failure {
+                        cb().await;
+                    }
+                    Err(TimeoutError::Returning(Box::new(e)))
+                }
+                Err(_elapsed) => {
+                    if let Some(ref cb) = this.on_timeout {
+                        cb().await;
+                    }
+                    Err(TimeoutError::Elapsed {
+                        duration: this.duration,
+                        name: this.name,
+                    })
+                }
+            }
+        } else {
+            let result = f().await;
+            match &result {
+                Ok(_) => {
+                    if let Some(ref cb) = this.on_success {
+                        cb().await;
+                    }
+                }
+                Err(_) => {
+                    if let Some(ref cb) = this.on_failure {
+                        cb().await;
+                    }
+                }
+            }
+            result.map_err(|e| TimeoutError::Returning(Box::new(e)))
         }
     }
 }
@@ -336,7 +378,7 @@ impl Default for Builder {
 
 impl<T, E> Policy<T, E> for TimeoutPolicy
 where
-    E: From<TimeoutError>,
+    E: Send,
 {
     fn call<F, Fut>(&self, f: &mut F) -> impl Future<Output = Result<T, E>> + Send
     where
@@ -351,36 +393,25 @@ where
             if this.cancel {
                 match tokio::time::timeout(this.duration, f()).await {
                     Ok(Ok(val)) => {
-                        // Operation completed within the deadline.
                         if let Some(ref cb) = this.on_success {
                             cb().await;
                         }
                         Ok(val)
                     }
                     Ok(Err(e)) => {
-                        // Operation completed within the deadline
-                        // but returned a user-level error.
                         if let Some(ref cb) = this.on_failure {
                             cb().await;
                         }
                         Err(e)
                     }
                     Err(_elapsed) => {
-                        // Deadline was exceeded – fire the timeout
-                        // hook and return an error.
                         if let Some(ref cb) = this.on_timeout {
                             cb().await;
                         }
-                        Err(TimeoutError::Elapsed {
-                            duration: this.duration,
-                            name: this.name,
-                        }
-                        .into())
+                        f().await
                     }
                 }
             } else {
-                // cancel is disabled – run the operation without any
-                // timeout at all and just fire lifecycle hooks.
                 let result = f().await;
                 match &result {
                     Ok(_) => {
