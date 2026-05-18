@@ -351,10 +351,7 @@ impl Pipeline {
                                 if let Some(cb) = ot {
                                     cb().await;
                                 }
-                                Err(crate::timeout::TimeoutError::Elapsed {
-                                    duration,
-                                    name,
-                                }.into())
+                                Err(crate::timeout::TimeoutError::Elapsed { duration, name }.into())
                             }
                         }
                     }) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>

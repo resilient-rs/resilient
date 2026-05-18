@@ -286,7 +286,8 @@ impl TimeoutPolicy {
                     Err(TimeoutError::Elapsed {
                         duration: this.duration,
                         name: this.name,
-                    }.into())
+                    }
+                    .into())
                 }
             }
         } else {
@@ -414,7 +415,8 @@ where
                         Err(TimeoutError::Elapsed {
                             duration: this.duration,
                             name: this.name,
-                        }.into())
+                        }
+                        .into())
                     }
                 }
             } else {

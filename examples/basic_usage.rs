@@ -45,7 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let count = attempts_clone.fetch_add(1, Ordering::Relaxed);
                     if count < 2 {
                         println!("  Attempt {}: Failed", count + 1);
-                        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Temporary error")) as Box<dyn std::error::Error + Send + Sync>)
+                        Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Temporary error",
+                        ))
+                            as Box<dyn std::error::Error + Send + Sync>)
                     } else {
                         println!("  Attempt {}: Success!", count + 1);
                         Ok("Recovered!".to_string())

@@ -1,4 +1,4 @@
-use resilient::{TimeoutPolicy, pipeline::Pipeline};
+use resilient::{pipeline::Pipeline, TimeoutPolicy};
 use std::time::Duration;
 use tokio::time::sleep;
 
