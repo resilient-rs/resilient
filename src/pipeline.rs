@@ -266,7 +266,8 @@ impl Pipeline {
                 let mut timed = || {
                     if let Some(ref rl) = rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                            return Box::pin(f())
+                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
                     timeout_flag.store(false, Ordering::Relaxed);
@@ -305,7 +306,8 @@ impl Pipeline {
                 let mut g = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                            return Box::pin(f())
+                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
                     Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
@@ -316,7 +318,8 @@ impl Pipeline {
                 let mut g = || {
                     if let Some(ref rl) = self.rate_limiter {
                         if !rl.try_consume(1) {
-                            return Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+                            return Box::pin(f())
+                                as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
                     Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>

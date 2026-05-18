@@ -1,4 +1,4 @@
-use resilient::{RateLimiter, RateLimitResult};
+use resilient::{RateLimitResult, RateLimiter};
 use std::time::Duration;
 
 #[tokio::main]

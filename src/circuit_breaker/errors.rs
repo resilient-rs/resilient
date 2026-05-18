@@ -14,9 +14,7 @@ pub enum CircuitError {
     ForcedOpen,
 
     #[error("Circuit breaker rejected call in half-open state (remaining: {calls_remaining})")]
-    HalfOpenRejected {
-        calls_remaining: usize,
-    },
+    HalfOpenRejected { calls_remaining: usize },
 }
 
 #[derive(Error, Debug)]
