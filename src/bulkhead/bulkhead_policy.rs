@@ -15,7 +15,7 @@ use crate::policy::Policy;
 ///
 /// Uses a counting semaphore: each in-flight operation holds one permit.
 /// When all permits are taken, [`try_acquire`](Bulkhead::try_acquire) and
-/// [`Policy::call`] reject new work with [`BulkheadError::CapacityExceeded`].
+/// [`Policy::call`] reject new work.
 ///
 /// All clones share the same underlying semaphore and are safe to use from
 /// multiple tasks concurrently.

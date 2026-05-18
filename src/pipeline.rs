@@ -151,8 +151,7 @@ impl Pipeline {
     /// Attaches a timeout policy.
     ///
     /// When set, each invocation (or each retry attempt) is bounded by the
-    /// configured duration. If the operation does not complete in time, a
-    /// [`TimeoutError`] is returned. See [`TimeoutPolicy`] for details.
+    /// configured duration. See [`TimeoutPolicy`] for details.
     pub fn with_timeout(mut self, policy: TimeoutPolicy) -> Self {
         self.timeout = Some(policy);
         self
@@ -161,9 +160,7 @@ impl Pipeline {
     /// Attaches a rate limiter.
     ///
     /// When set, the operation is only executed if the rate limiter has
-    /// a token available. Otherwise a [`RateLimitError`] is returned
-    /// immediately without invoking the operation. See [`RateLimiter`] for
-    /// details.
+    /// a token available. See [`RateLimiter`] for details.
     pub fn with_rate_limiter(mut self, policy: RateLimiter) -> Self {
         self.rate_limiter = Some(policy);
         self
@@ -172,8 +169,7 @@ impl Pipeline {
     /// Attaches a bulkhead policy.
     ///
     /// When set, at most the configured number of pipeline runs may be in
-    /// flight at once. Additional callers receive [`BulkheadError::CapacityExceeded`]
-    /// without invoking the operation. The permit is held for the entire run,
+    /// flight at once. The permit is held for the entire run,
     /// including all retry attempts.
     pub fn with_bulkhead(mut self, policy: Bulkhead) -> Self {
         self.bulkhead = Some(policy);
@@ -208,10 +204,8 @@ impl Pipeline {
     ///
     /// The policies are applied in this order:
     ///
-    /// 1. **Circuit breaker check** — returns [`CircuitError::CircuitOpen`]
-    ///    if the circuit is currently open.
-    /// 2. **Bulkhead acquire** — returns [`BulkheadError::CapacityExceeded`]
-    ///    when max concurrency is reached.
+    /// 1. **Circuit breaker check** — checks if the circuit is open.
+    /// 2. **Bulkhead acquire** — acquires a permit when max concurrency is reached.
     /// 3. **Operation execution** — the closure `f` is invoked. Depending on
     ///    the configured policies:
     ///    - If both retry and timeout are set, each retry attempt has its own
@@ -232,15 +226,12 @@ impl Pipeline {
     ///   call it multiple times.
     /// * `Fut` — The future returned by `F`.
     /// * `T` — The success type of the operation.
-    /// * `E` — The error type. Must implement `From` for [`CircuitError`],
-    ///   [`TimeoutError`], [`RateLimitError`], and [`BulkheadError`] so the
-    ///   pipeline can return those error variants through the same error channel.
+    /// * `E` — The error type of the wrapped operation.
     ///
     /// # Returns
     ///
     /// * `Ok(T)` — the operation succeeded (possibly after retries).
-    /// * `Err(E)` — the operation ultimately failed, was rate-limited, was
-    ///   rejected by the circuit breaker, or timed out.
+    /// * `Err(E)` — the operation ultimately failed.
     pub async fn run<F, Fut, T, E>(&self, mut f: F) -> Result<T, E>
     where
         F: FnMut() -> Fut + Send,
@@ -334,14 +325,9 @@ impl Pipeline {
             }
             (None, None) => {
                 if let Some(ref rl) = self.rate_limiter {
-                    if !rl.try_consume(1) {
-                        f().await
-                    } else {
-                        f().await
-                    }
-                } else {
-                    f().await
+                    let _ = rl.try_consume(1);
                 }
+                f().await
             }
         };
 
