@@ -95,9 +95,7 @@ impl Bulkhead {
         T: Send,
         E: Send + From<BulkheadError>,
     {
-        let _permit = self
-            .try_acquire()
-            .ok_or(BulkheadError::CapacityExceeded)?;
+        let _permit = self.try_acquire().ok_or(BulkheadError::CapacityExceeded)?;
         f().await
     }
 }
@@ -116,9 +114,7 @@ where
         let this = self.clone();
 
         async move {
-            let _permit = this
-                .try_acquire()
-                .ok_or(BulkheadError::CapacityExceeded)?;
+            let _permit = this.try_acquire().ok_or(BulkheadError::CapacityExceeded)?;
             f().await
         }
     }

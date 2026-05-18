@@ -6,9 +6,7 @@ async fn main() {
 
     for i in 0..6 {
         let result: Result<String, String> = policy
-            .run(|| async {
-                Err::<String, _>("something went wrong".to_string())
-            })
+            .run(|| async { Err::<String, _>("something went wrong".to_string()) })
             .await;
         println!("call {}: {:?}", i + 1, result);
     }
