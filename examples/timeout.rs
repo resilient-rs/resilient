@@ -1,17 +1,21 @@
-use resilient::TimeoutPolicy;
+use resilient::{TimeoutPolicy, pipeline::Pipeline};
 use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() {
-    let policy = TimeoutPolicy::default().with_timeout(Duration::from_secs(1));
+    let timeout = TimeoutPolicy::default().with_timeout(Duration::from_secs(1));
+    let pipeline = Pipeline::default().with_timeout(timeout);
 
-    let result: Result<String, String> = policy
+    let start = std::time::Instant::now();
+    let result: Result<String, Box<dyn std::error::Error + Send + Sync>> = pipeline
         .run(|| async {
             sleep(Duration::from_secs(3)).await;
-            Ok::<_, String>("done".to_string())
+            Ok("done".to_string())
         })
         .await;
 
-    println!("{:?}", result);
+    let elapsed = start.elapsed();
+    println!("result: {:?}", result);
+    println!("elapsed: {:?} (should be ~1 second)", elapsed);
 }

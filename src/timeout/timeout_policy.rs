@@ -261,7 +261,7 @@ impl TimeoutPolicy {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send,
+        E: Send + From<TimeoutError>,
     {
         let this = self.clone();
 
@@ -283,7 +283,10 @@ impl TimeoutPolicy {
                     if let Some(ref cb) = this.on_timeout {
                         cb().await;
                     }
-                    Err(unsafe { std::mem::zeroed() })
+                    Err(TimeoutError::Elapsed {
+                        duration: this.duration,
+                        name: this.name,
+                    }.into())
                 }
             }
         } else {
@@ -378,7 +381,7 @@ impl Default for Builder {
 
 impl<T, E> Policy<T, E> for TimeoutPolicy
 where
-    E: Send,
+    E: Send + From<TimeoutError>,
 {
     fn call<F, Fut>(&self, f: &mut F) -> impl Future<Output = Result<T, E>> + Send
     where
@@ -408,7 +411,10 @@ where
                         if let Some(ref cb) = this.on_timeout {
                             cb().await;
                         }
-                        f().await
+                        Err(TimeoutError::Elapsed {
+                            duration: this.duration,
+                            name: this.name,
+                        }.into())
                     }
                 }
             } else {

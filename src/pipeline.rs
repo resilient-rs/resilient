@@ -237,7 +237,7 @@ impl Pipeline {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + 'static,
+        E: Send + 'static + From<crate::timeout::TimeoutError>,
     {
         if let Some(ref cb) = self.circuit_breaker {
             if !cb.should_allow_request() {
@@ -315,16 +315,51 @@ impl Pipeline {
                 retry.call(&mut g).await
             }
             (None, Some(timeout)) => {
-                let mut g = || {
-                    if let Some(ref rl) = self.rate_limiter {
+                let duration = timeout.duration;
+                let on_success = timeout.on_success.clone();
+                let on_failure = timeout.on_failure.clone();
+                let on_timeout = timeout.on_timeout.clone();
+                let name = timeout.name.clone();
+                let rate_limiter = self.rate_limiter.clone();
+
+                let g = move || {
+                    if let Some(ref rl) = rate_limiter {
                         if !rl.try_consume(1) {
                             return Box::pin(f())
                                 as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
                         }
                     }
-                    Box::pin(f()) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
+                    let fut = f();
+                    let os = on_success.clone();
+                    let of = on_failure.clone();
+                    let ot = on_timeout.clone();
+                    Box::pin(async move {
+                        match tokio::time::timeout(duration, fut).await {
+                            Ok(Ok(val)) => {
+                                if let Some(cb) = os {
+                                    cb().await;
+                                }
+                                Ok(val)
+                            }
+                            Ok(Err(e)) => {
+                                if let Some(cb) = of {
+                                    cb().await;
+                                }
+                                Err(e)
+                            }
+                            Err(_elapsed) => {
+                                if let Some(cb) = ot {
+                                    cb().await;
+                                }
+                                Err(crate::timeout::TimeoutError::Elapsed {
+                                    duration,
+                                    name,
+                                }.into())
+                            }
+                        }
+                    }) as Pin<Box<dyn Future<Output = Result<T, E>> + Send>>
                 };
-                timeout.call(&mut g).await
+                g().await
             }
             (None, None) => {
                 if let Some(ref rl) = self.rate_limiter {
@@ -389,7 +424,7 @@ where
     where
         G: FnMut() -> GFut + Send,
         GFut: Future<Output = Result<T, E>> + Send,
-        E: Send + 'static,
+        E: Send + 'static + From<crate::timeout::TimeoutError>,
     {
         match self.primary.run(op).await {
             Ok(val) => Ok(val),
