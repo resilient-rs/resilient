@@ -1,19 +1,20 @@
 //! Pipeline — a composable execution chain for resilience policies.
 //!
 //! The `Pipeline` combines multiple resilience strategies (retry, timeout,
-//! circuit breaker, rate limiting) into a single, ordered execution chain.
+//! circuit breaker, bulkhead, rate limiting) into a single, ordered execution chain.
 //! Each policy is optional — only the ones you configure are applied.
 //!
 //! # Policy Order
 //!
 //! When `run` is called, policies are applied in this fixed order:
 //!
-//! 1. **Rate Limiting** — checks the token bucket before anything else.
-//! 2. **Circuit Breaker** — checks whether the circuit is open.
+//! 1. **Circuit Breaker** — checks whether the circuit is open.
+//! 2. **Bulkhead** — acquires a concurrency permit for the whole run.
 //! 3. **Retry & Timeout** — the operation itself, optionally wrapped in retry
-//!    and/or timeout logic. When both are present, each retry attempt has its
-//!    own timeout. Timeout errors are **not** retried — they propagate
-//!    immediately to the caller.
+//!    and/or timeout logic. Rate limiting (when configured) is applied per
+//!    execution attempt inside this step. When both retry and timeout are
+//!    present, each retry attempt has its own timeout. Timeout errors are
+//!    **not** retried — they propagate immediately to the caller.
 //! 4. **Circuit Breaker Feedback** — after the operation completes (or fails),
 //!    the result is fed back to the circuit breaker so it can update its state.
 //!
@@ -66,6 +67,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use crate::bulkhead::{Bulkhead, BulkheadError};
 use crate::circuit_breaker::{BreakerPolicy, CircuitError};
 use crate::policy::Policy;
 use crate::rate_limit::{RateLimitError, RateLimiter};
@@ -73,7 +75,7 @@ use crate::retry_policy::RetryPolicy;
 use crate::timeout::{TimeoutError, TimeoutPolicy};
 
 /// A composable resilience pipeline that chains retry, circuit breaker,
-/// timeout, and rate-limiting policies around an async operation.
+/// timeout, bulkhead, and rate-limiting policies around an async operation.
 ///
 /// Each policy is optional. Use the builder methods to attach the ones you need.
 /// Policies execute in a fixed order (see [module docs](self) for details).
@@ -93,6 +95,7 @@ pub struct Pipeline {
     circuit_breaker: Option<BreakerPolicy>,
     timeout: Option<TimeoutPolicy>,
     rate_limiter: Option<RateLimiter>,
+    bulkhead: Option<Bulkhead>,
 }
 
 impl Pipeline {
@@ -112,6 +115,7 @@ impl Pipeline {
             circuit_breaker: None,
             timeout: None,
             rate_limiter: None,
+            bulkhead: None,
         }
     }
 }
@@ -165,6 +169,17 @@ impl Pipeline {
         self
     }
 
+    /// Attaches a bulkhead policy.
+    ///
+    /// When set, at most the configured number of pipeline runs may be in
+    /// flight at once. Additional callers receive [`BulkheadError::CapacityExceeded`]
+    /// without invoking the operation. The permit is held for the entire run,
+    /// including all retry attempts.
+    pub fn with_bulkhead(mut self, policy: Bulkhead) -> Self {
+        self.bulkhead = Some(policy);
+        self
+    }
+
     /// Wraps this pipeline with a fallback operation.
     ///
     /// When the pipeline's [`run`](Pipeline::run) returns any error, the
@@ -193,10 +208,10 @@ impl Pipeline {
     ///
     /// The policies are applied in this order:
     ///
-    /// 1. **Rate limiter check** — consumes a token; returns
-    ///    [`RateLimitError`] if the bucket is empty.
-    /// 2. **Circuit breaker check** — returns [`CircuitError::CircuitOpen`]
+    /// 1. **Circuit breaker check** — returns [`CircuitError::CircuitOpen`]
     ///    if the circuit is currently open.
+    /// 2. **Bulkhead acquire** — returns [`BulkheadError::CapacityExceeded`]
+    ///    when max concurrency is reached.
     /// 3. **Operation execution** — the closure `f` is invoked. Depending on
     ///    the configured policies:
     ///    - If both retry and timeout are set, each retry attempt has its own
@@ -218,8 +233,8 @@ impl Pipeline {
     /// * `Fut` — The future returned by `F`.
     /// * `T` — The success type of the operation.
     /// * `E` — The error type. Must implement `From` for [`CircuitError`],
-    ///   [`TimeoutError`], and [`RateLimitError`] so the pipeline can return
-    ///   those error variants through the same error channel.
+    ///   [`TimeoutError`], [`RateLimitError`], and [`BulkheadError`] so the
+    ///   pipeline can return those error variants through the same error channel.
     ///
     /// # Returns
     ///
@@ -231,7 +246,12 @@ impl Pipeline {
         F: FnMut() -> Fut + Send,
         Fut: Future<Output = Result<T, E>> + Send,
         T: Send,
-        E: Send + 'static + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
+        E: Send
+            + 'static
+            + From<CircuitError>
+            + From<TimeoutError>
+            + From<RateLimitError>
+            + From<BulkheadError>,
     {
         if let Some(ref cb) = self.circuit_breaker {
             if !cb.should_allow_request() {
@@ -242,6 +262,15 @@ impl Pipeline {
                 .into());
             }
         }
+
+        let _bulkhead_permit = if let Some(ref bulkhead) = self.bulkhead {
+            match bulkhead.try_acquire() {
+                Some(permit) => Some(permit),
+                None => return Err(BulkheadError::CapacityExceeded.into()),
+            }
+        } else {
+            None
+        };
 
         let result = match (self.retry_policy.as_ref(), self.timeout.as_ref()) {
             (Some(retry), Some(timeout)) => {
@@ -387,7 +416,12 @@ where
     where
         G: FnMut() -> GFut + Send,
         GFut: Future<Output = Result<T, E>> + Send,
-        E: Send + 'static + From<CircuitError> + From<TimeoutError> + From<RateLimitError>,
+        E: Send
+            + 'static
+            + From<CircuitError>
+            + From<TimeoutError>
+            + From<RateLimitError>
+            + From<BulkheadError>,
     {
         match self.primary.run(op).await {
             Ok(val) => Ok(val),

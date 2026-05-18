@@ -1,7 +1,9 @@
 //! `resilient` is a Rust library for adding resilience to async operations.
-//! It provides composable policies (retry, timeout, circuit breaker, etc.)
+//! It provides composable policies (retry, timeout, circuit breaker, bulkhead, etc.)
 //! that can be layered via a pipeline.
 
+pub mod bulkhead;
+pub use bulkhead::Bulkhead;
 pub mod circuit_breaker;
 pub use breaker::BreakerPolicy;
 pub use circuit_breaker as breaker;
