@@ -16,8 +16,8 @@
 //!     .await;
 //! ```
 
-pub mod bulkhead;
+pub mod bulkhead_policy;
 pub mod errors;
 
-pub use bulkhead::Bulkhead;
+pub use bulkhead_policy::Bulkhead;
 pub use errors::BulkheadError;
