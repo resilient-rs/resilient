@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'policies/retry',
         'policies/timeout',
         'policies/circuit-breaker',
+        'policies/bulkhead',
         'policies/rate-limiter',
       ],
     },
