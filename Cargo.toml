@@ -7,7 +7,7 @@ readme = "README.md"
 license = "MIT"
 repository = "https://github.com/resilient-rs/resilient"
 homepage = "https://resilient.jofab08.workers.dev/"
-keywords = ["resilience", "retry", "circuit-breaker", "timeout", "bulkhead", "rate-limiter"]
+keywords = ["resilience", "retry", "circuit-breaker", "bulkhead", "rate-limiter"]
 categories = ["asynchronous", "network", "fault-tolerance"]
 
 [package.metadata.docs.rs]
