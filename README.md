@@ -12,7 +12,7 @@ A composable async resilience toolkit for Rust — retry, timeout, circuit break
 
 ```toml
 [dependencies]
-resilient = "0.1"
+resilient = "0.1.0"
 tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
 ```
 
