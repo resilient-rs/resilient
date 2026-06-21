@@ -7,13 +7,14 @@
     "start": "docusaurus start",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
-    "deploy": "docusaurus deploy",
+    "deploy": "bun run build && wrangler deploy",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
     "typecheck": "tsc",
-    "lint": "eslint src/ --ext .ts,.tsx"
+    "lint": "eslint src/ --ext .ts,.tsx",
+    "preview": "bun run build && wrangler dev"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.1",
@@ -35,7 +36,8 @@
     "@typescript-eslint/parser": "^8.59.3",
     "eslint": "^10.4.0",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.59.3"
+    "typescript-eslint": "^8.59.3",
+    "wrangler": "^4.103.0"
   },
   "browserslist": {
     "production": [
