@@ -1,6 +1,7 @@
 use resilient::pipeline::Pipeline;
 use resilient::timeout::Builder as TimeoutBuilder;
 use resilient::BreakerPolicy;
+use resilient::Bulkhead;
 use resilient::RateLimiter;
 use resilient::RetryPolicy;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -16,12 +17,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timeout_policy = TimeoutBuilder::new().with_timeout_secs(5).build();
     let breaker_policy = BreakerPolicy::default();
     let rate_limiter = RateLimiter::default();
+    let bulkhead = Bulkhead::default();
 
     let pipeline = Pipeline::new()
         .with_retry(retry_policy)
         .with_timeout(timeout_policy)
         .with_circuit_breaker(breaker_policy)
-        .with_rate_limiter(rate_limiter);
+        .with_rate_limiter(rate_limiter)
+        .with_bulkhead(bulkhead);
 
     println!("Example 1: Successful operation");
     let result: Result<String, Box<dyn std::error::Error + Send + Sync>> = pipeline
