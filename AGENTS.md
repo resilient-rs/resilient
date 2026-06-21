@@ -1,60 +1,148 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Project Structure
 
-This repository is a Rust async resilience library. Core code lives in `src/`.
-The public API is exported from `src/lib.rs`, shared behavior is in
-`src/policy.rs`, and composition is implemented in `src/pipeline.rs`.
-Individual policies are grouped by module: `src/retry_policy/`, `src/timeout/`,
-`src/circuit_breaker/`, `src/rate_limit/`, and `src/bulkhead/`.
+Core library is `src/`. Entrypoint: `src/lib.rs` re-exports all public types.
+Shared abstraction: `src/policy.rs` defines the `Policy<T, E>` trait (method `call`).
+Composition: `src/pipeline.rs` implements `Pipeline` (builder + fixed-order execution).
 
-Runnable examples live in `examples/` and should show one policy or a small
-composition. The documentation site is a Docusaurus app in
-`docs/web/`; its Markdown pages are under `docs/web/docs/`, and styling lives in
-`docs/web/src/css/`. Generated outputs such as `target/`, `docs/web/build/`, and
-`docs/web/node_modules/` should not be edited manually.
+Each policy is a module with `mod.rs`, error types, and main implementation file:
 
-## Build, Test, and Development Commands
+| Module              | Impl file                   | Error types                          |
+|---------------------|-----------------------------|--------------------------------------|
+| `retry_policy`      | `retry_policy/retry.rs`     | —                                    |
+| `timeout`           | `timeout/timeout_policy.rs` | `TimeoutError`                       |
+| `circuit_breaker`   | `circuit_breaker/breaker.rs`| `CircuitError`, `BreakerResult`      |
+| `rate_limit`        | `rate_limit/rate_limiter.rs`| `RateLimitError`, `RateLimitResult`  |
+| `bulkhead`          | `bulkhead/bulkhead_policy.rs`| `BulkheadError`                     |
 
-- `cargo build`: compile the Rust crate.
-- `cargo test`: run unit tests and doc tests.
-- `cargo fmt --all`: format all Rust code.
-- `cargo clippy -- -D warnings`: lint with warnings treated as errors.
-- `cargo run --example retry`: run an example; replace `retry` with another file
-  stem from `examples/`.
-- `cd docs/web && bun install`: install docs dependencies.
-- `cd docs/web && bun run start`: run the local Docusaurus docs server.
-- `cd docs/web && bun run build`: build the docs site for production.
+Runnable examples in `examples/` (one per policy + `basic_usage.rs` for full pipeline).
 
-## Coding Style & Naming Conventions
+Doc site: Docusaurus app at `docs/web/`. Source pages in `docs/web/docs/`.
 
-Use standard Rust formatting via `rustfmt`; keep indentation and imports aligned
-with `cargo fmt`. Prefer focused modules and builder-style methods
-named `with_*` for configuration. Rust types and traits use `PascalCase`, modules
-and functions use `snake_case`, and error/result wrapper types should be explicit,
-for example `TimeoutError` or `BreakerResult`.
+## Policies at a Glance
 
-## Testing Guidelines
+Every policy supports three invocation patterns:
+1. **Standalone** — call `policy.run(|| op()).await` (return type varies per policy).
+2. **Via `Policy` trait** — `policy.call(&mut || op()).await` (returns `Result<T, E>`).
+3. **Composed** — attach to `Pipeline` via `with_*` builder methods.
 
-Tests use Rust's built-in test framework with `tokio::test` for async behavior.
-Place unit tests near the implementation they validate, as in
-`src/bulkhead/bulkhead_policy.rs`. Name tests after observable behavior, such as
-`releases_permit_after_completion`. Run `cargo test` before opening a PR; run
-`cargo clippy -- -D warnings` when touching shared policy logic.
+### RetryPolicy (`RetryPolicy`)
 
-## Commit & Pull Request Guidelines
+Builder: `with_max_retries` (default 3), `with_mode`, `with_min_delay` (2s), `with_max_delay` (6s),
+`with_max_duration` (10s), `retry_if(|e: &MyError| …)`.
 
-Recent commits use short Conventional Commit-style prefixes such as `chore:`,
-`docs:`, and `fix:`. Keep messages imperative and scoped, for example
-`fix: handle timeout errors in pipeline`.
+`RetryMode`: `Linear`, `FullJitter`, `EqualJitter`, `DecorrelatedJitter`.
 
-Pull requests should include a brief description, tests run, and any user-facing
-API or documentation impact. Link related issues when applicable.
-For docs UI changes, include screenshots or a short note confirming
-`bun run build` passed.
+`run()` returns `Result<T, E>` directly (no wrapper error type).
 
-## Security & Configuration Tips
+Panics are caught by `AssertUnwindSafe` and retried (re-raised if budget exhausted).
+Timeouts are NOT retried when inside a Pipeline (the pipeline sets an atomic flag).
 
-Do not commit generated artifacts, secrets, local environment files, or registry
-credentials. Keep dependency changes intentional and reflected in `Cargo.lock`
-or `docs/web/bun.lock` as appropriate.
+### TimeoutPolicy (`TimeoutPolicy`, plus separate `Builder`)
+
+Builder: `with_timeout` / `with_timeout_millis/secs/minutes/hours`, `with_cancel` (default true),
+`with_name` (appears in error message), `with_on_timeout/success/failure` (async lifecycle hooks).
+
+`TimeoutError::Elapsed { duration, name }` and `TimeoutError::Returning(Box<dyn Error>)`.
+
+Two standalone run methods:
+- `policy.run(|| op()).await` — requires `E: From<TimeoutError>`, returns `Result<T, E>`.
+- `policy.run_with_timeout(|| op()).await` — returns `Result<T, TimeoutError>`.
+
+**When used in `Pipeline`:** `Pipeline::run()` requires `E: From<TimeoutError>`.
+Timeout errors are **not** retried — they propagate immediately.
+
+### BreakerPolicy (`BreakerPolicy`)
+
+Builder: `with_failure_threshold` (default 5), `with_success_threshold` (3),
+`with_open_timeout` (30s), `with_half_open_max_calls` (3), `with_mode`, `with_window_size` (60s),
+`with_adaptive_bounds` (min 10s, max 300s).
+
+`CircuitBreakerMode`: `CountBased` (consecutive failures), `SlidingWindow` (≥50% failure rate in
+rolling window), `Adaptive` (CountBased + exponential back-off on open timeout).
+
+State machine: `Closed → Open → HalfOpen → Closed`. Manual overrides: `force_open()`, `force_close()`,
+`reset()`. Shared state behind `Arc<Atomic*>` — clones share counters.
+
+Standalone:
+- `run()` returns `Result<T, BreakerResult<E>>`.
+- `run_raw()` returns `Result<T, E>` (rejects by calling op anyway).
+
+### RateLimiter (`RateLimiter`)
+
+Token-bucket algorithm. Builder: `with_max_tokens` (default 10), `with_refill_rate` (1s).
+
+`run()` returns `Result<T, RateLimitResult<E>>`.
+`try_consume(n)` returns `bool`. `available_tokens()` snapshot.
+
+Shared state behind `Arc<Mutex<…>>`. Clones share bucket.
+
+### Bulkhead (`Bulkhead`)
+
+Built on `tokio::sync::Semaphore`. Builder: `with_max_concurrent` (default 10, minimum 1).
+
+`run()` returns `Result<T, E>` directly (no wrapper).
+`try_acquire()` returns `Option<SemaphorePermit>`. `available_permits()`, `in_flight()`.
+
+## Pipeline
+
+Build via `Pipeline::new()` or `Pipeline::default()`, then chain:
+`with_retry`, `with_timeout`, `with_circuit_breaker`, `with_rate_limiter`, `with_bulkhead`.
+
+Fixed execution order:
+1. **Circuit breaker check** — reject if open/forced-open.
+2. **Bulkhead acquire** — blocks if at capacity.
+3. **Operation** — optionally wrapped in retry + timeout (each retry has its own timeout).
+   Rate limiting is applied per-attempt inside this step.
+4. **Circuit breaker feedback** — success/failure recorded.
+
+Attach fallback via `.or_else(|| async { … })`. The fallback runs **raw** (no policies re-applied).
+
+**Key type constraint:** `Pipeline::run()` requires `E: From<TimeoutError>`. Use
+`Box<dyn std::error::Error + Send + Sync>` or a custom enum that derives `From<TimeoutError>`.
+
+`Pipeline` is `Clone + Send + Sync`. Clones share circuit breaker and rate limiter state.
+
+## Build, Test, Lint
+
+```sh
+cargo build
+cargo test                         # unit + doc tests
+cargo fmt --all                    # format (CI uses --check)
+cargo clippy -- -D warnings        # lint
+cargo run --example <name>         # run an example
+```
+
+CI order (`.github/workflows/main.yml`): `cargo fmt --all -- --check` → `cargo clippy -- -D warnings` → `cargo test`.
+
+## Docs Site
+
+```sh
+cd docs/web && bun install
+cd docs/web && bun run start       # dev server
+cd docs/web && bun run build       # production build
+cd docs/web && bun run typecheck   # tsc
+cd docs/web && bun run lint        # eslint src/
+```
+
+Generated artifacts: `docs/web/build/`, `docs/web/node_modules/`, `target/` — do not edit manually.
+
+## Feature Flags
+
+| Flag             | Description                                   |
+|------------------|-----------------------------------------------|
+| `async-closure`  | Enables async closure syntax (nightly only)   |
+
+## Coding Conventions
+
+- `with_*` builder methods return `Self` (consuming, not `&mut self`).
+- Error/wrapper types follow the pattern `XxxResult<E>`, e.g., `BreakerResult<E>`.
+- Tests: `tokio::test`, co-located near the implementation they test.
+- Commits: Conventional Commit style, e.g., `feat: add adaptive circuit breaker mode`.
+
+## Tests
+
+Run `cargo test` before opening a PR. Tests use `tokio::test` and are inlined in impl files
+under `#[cfg(test)] mod tests`. Test functions are named after observable behavior:
+`releases_permit_after_completion`, `permanent_error_fails_without_extra_attempts`.
