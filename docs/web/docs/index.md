@@ -1,6 +1,6 @@
 # resilient
 
-**resilient** is a composable async resilience toolkit for Rust. It provides a set of modular, composable policies that make it easy to add retry, timeout, circuit breaking, and rate limiting to any async operation.
+**resilient** is a composable async resilience toolkit for Rust. It provides a set of modular, composable policies that make it easy to add retry, timeout, circuit breaking, rate limiting, and bulkhead to any async operation.
 
 ## Why resilient?
 
@@ -19,6 +19,7 @@ Building reliable distributed systems means handling failures gracefully. resili
 | [Timeout](policies/timeout) | Enforce a deadline on async operations with lifecycle hooks |
 | [Circuit Breaker](policies/circuit-breaker) | Prevent cascading failures by monitoring error rates and short-circuiting |
 | [Rate Limiter](policies/rate-limiter) | Control request rate with a token-bucket algorithm |
+| [Bulkhead](policies/bulkhead) | Limit concurrent execution with a semaphore-based bulkhead pattern |
 
 ## Quick Example
 
@@ -28,13 +29,15 @@ use resilient::RetryPolicy;
 use resilient::TimeoutPolicy;
 use resilient::BreakerPolicy;
 use resilient::RateLimiter;
+use resilient::Bulkhead;
 use std::time::Duration;
 
 let pipeline = Pipeline::default()
     .with_retry(RetryPolicy::default().with_max_retries(3))
     .with_timeout(TimeoutPolicy::default().with_timeout(Duration::from_secs(5)))
     .with_circuit_breaker(BreakerPolicy::default())
-    .with_rate_limiter(RateLimiter::default().with_max_tokens(100));
+    .with_rate_limiter(RateLimiter::default().with_max_tokens(100))
+    .with_bulkhead(Bulkhead::default().with_max_concurrent(10));
 
 let result = pipeline
     .run(&mut || async { Ok::<_, String>("hello resilient!") })
